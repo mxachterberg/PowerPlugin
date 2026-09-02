@@ -21,9 +21,13 @@ public sealed class SettingsStoreTests : IDisposable
     {
         AppSettings settings = new SettingsStore(_file).Load();
 
-        Assert.Equal(2.0, settings.SampleIntervalSeconds);
+        Assert.Equal(0.5, settings.SampleIntervalSeconds);
         Assert.Equal(TrayDisplayMode.TotalWatts, settings.TrayDisplay);
         Assert.Equal(1.0, settings.Model.ReportingThresholdWatts);
+
+        // The tray refreshes twice per second and shows the mean of the last three seconds.
+        Assert.Equal(TimeSpan.FromMilliseconds(500), settings.TrayRefreshInterval);
+        Assert.Equal(TimeSpan.FromSeconds(3), settings.TrayAverageWindow);
     }
 
     [Fact]
@@ -64,7 +68,7 @@ public sealed class SettingsStoreTests : IDisposable
 
         AppSettings settings = new SettingsStore(_file).Load();
 
-        Assert.Equal(2.0, settings.SampleIntervalSeconds);
+        Assert.Equal(0.5, settings.SampleIntervalSeconds);
         Assert.True(File.Exists(_file + ".bak"), "Die beschädigte Datei sollte als .bak erhalten bleiben.");
     }
 
@@ -80,8 +84,33 @@ public sealed class SettingsStoreTests : IDisposable
     [Fact]
     public void SampleIntervalIsClampedToAUsableRange()
     {
-        Assert.Equal(TimeSpan.FromSeconds(1), new AppSettings { SampleIntervalSeconds = 0.1 }.SampleInterval);
+        Assert.Equal(TimeSpan.FromSeconds(0.5), new AppSettings { SampleIntervalSeconds = 0.01 }.SampleInterval);
         Assert.Equal(TimeSpan.FromSeconds(60), new AppSettings { SampleIntervalSeconds = 9999 }.SampleInterval);
+    }
+
+    [Fact]
+    public void TrayTimingIsClampedToAUsableRange()
+    {
+        // A refresh every few milliseconds would redraw the icon pointlessly often.
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(100),
+            new AppSettings { TrayRefreshMilliseconds = 1 }.TrayRefreshInterval);
+
+        Assert.Equal(
+            TimeSpan.FromSeconds(0.5),
+            new AppSettings { TrayAverageWindowSeconds = 0 }.TrayAverageWindow);
+    }
+
+    [Fact]
+    public void TrayTimingSurvivesARoundTrip()
+    {
+        var store = new SettingsStore(_file);
+        store.Save(new AppSettings { TrayRefreshMilliseconds = 250, TrayAverageWindowSeconds = 8 });
+
+        AppSettings read = store.Load();
+
+        Assert.Equal(250, read.TrayRefreshMilliseconds);
+        Assert.Equal(8, read.TrayAverageWindowSeconds);
     }
 
     [Fact]

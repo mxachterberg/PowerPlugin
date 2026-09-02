@@ -21,6 +21,8 @@ internal sealed class SettingsPage : ScrollViewer
     private readonly TextBox _retention;
     private readonly TextBox _greenThreshold;
     private readonly TextBox _amberThreshold;
+    private readonly TextBox _trayRefresh;
+    private readonly TextBox _trayAverage;
 
     private readonly CheckBox _autostart;
     private readonly CheckBox _closeToTray;
@@ -54,6 +56,8 @@ internal sealed class SettingsPage : ScrollViewer
         _retention = Theme.TextBox(string.Empty, 90);
         _greenThreshold = Theme.TextBox(string.Empty, 90);
         _amberThreshold = Theme.TextBox(string.Empty, 90);
+        _trayRefresh = Theme.TextBox(string.Empty, 90);
+        _trayAverage = Theme.TextBox(string.Empty, 90);
 
         _autostart = Theme.CheckBox("Mit Windows starten", false);
         _closeToTray = Theme.CheckBox("Fenster schließen minimiert in den Infobereich", true);
@@ -111,6 +115,8 @@ internal sealed class SettingsPage : ScrollViewer
         _retention.Text = _settings.HistoryRetentionDays.ToString(CultureInfo.CurrentCulture);
         _greenThreshold.Text = _settings.TrayGreenThresholdWatts.ToString("0", CultureInfo.CurrentCulture);
         _amberThreshold.Text = _settings.TrayAmberThresholdWatts.ToString("0", CultureInfo.CurrentCulture);
+        _trayRefresh.Text = _settings.TrayRefreshMilliseconds.ToString("0", CultureInfo.CurrentCulture);
+        _trayAverage.Text = _settings.TrayAverageWindowSeconds.ToString("0.#", CultureInfo.CurrentCulture);
 
         _autostart.IsChecked = _settings.StartWithWindows;
         _closeToTray.IsChecked = _settings.CloseToTray;
@@ -130,7 +136,9 @@ internal sealed class SettingsPage : ScrollViewer
         var general = new Grid();
         AddRow(general, "Strompreis pro kWh", "Grundlage aller Kostenangaben und der Jahresprognose.", _price);
         AddRow(general, "Währungszeichen", "Wird hinter allen Kostenwerten angezeigt.", _currency);
-        AddRow(general, "Messintervall (Sekunden)", "1 bis 60 Sekunden. Kleinere Werte reagieren schneller auf Lastspitzen.", _interval);
+        AddRow(general, "Messintervall (Sekunden)",
+            "0,5 bis 60 Sekunden. Bestimmt, wie oft die Sensoren gelesen werden - und damit, wie oft " +
+            "sich der Wert im Infobereich überhaupt ändern kann.", _interval);
         AddRow(general, "Verlauf aufbewahren (Tage)", "Ältere Messwerte werden beim Start gelöscht. 0 behält alles.", _retention);
         stack.Children.Add(Section("Tarif und Messung", general));
 
@@ -150,6 +158,11 @@ internal sealed class SettingsPage : ScrollViewer
         var thresholds = new Grid();
         AddRow(thresholds, "Symbol grün bis (W)", "Bis zu diesem Wert wird das Symbol grün dargestellt.", _greenThreshold);
         AddRow(thresholds, "Symbol gelb bis (W)", "Darüber wechselt das Symbol auf Rot.", _amberThreshold);
+        AddRow(thresholds, "Aktualisierung (ms)",
+            "Takt, in dem die Zahl im Infobereich neu gezeichnet wird.", _trayRefresh);
+        AddRow(thresholds, "Glättung (Sekunden)",
+            "Angezeigt wird der Mittelwert dieses Zeitfensters statt des letzten Messwerts. " +
+            "Ohne Glättung springt die Zahl mehrmals pro Sekunde um zweistellige Beträge.", _trayAverage);
         behaviour.Children.Add(thresholds);
 
         stack.Children.Add(Section("Verhalten und Taskleiste", behaviour));
@@ -291,10 +304,12 @@ internal sealed class SettingsPage : ScrollViewer
 
         updated.PricePerKilowattHour = ParseDecimal(_price.Text, updated.PricePerKilowattHour, 0m, 10m);
         updated.CurrencySymbol = string.IsNullOrWhiteSpace(_currency.Text) ? "€" : _currency.Text.Trim();
-        updated.SampleIntervalSeconds = ParseDouble(_interval.Text, updated.SampleIntervalSeconds, 1, 60);
+        updated.SampleIntervalSeconds = ParseDouble(_interval.Text, updated.SampleIntervalSeconds, 0.5, 60);
         updated.HistoryRetentionDays = (int)ParseDouble(_retention.Text, updated.HistoryRetentionDays, 0, 3650);
         updated.TrayGreenThresholdWatts = ParseDouble(_greenThreshold.Text, updated.TrayGreenThresholdWatts, 1, 5000);
         updated.TrayAmberThresholdWatts = ParseDouble(_amberThreshold.Text, updated.TrayAmberThresholdWatts, 1, 5000);
+        updated.TrayRefreshMilliseconds = ParseDouble(_trayRefresh.Text, updated.TrayRefreshMilliseconds, 100, 10_000);
+        updated.TrayAverageWindowSeconds = ParseDouble(_trayAverage.Text, updated.TrayAverageWindowSeconds, 0.5, 120);
 
         // A green limit above the amber limit would leave the amber band empty.
         if (updated.TrayAmberThresholdWatts <= updated.TrayGreenThresholdWatts)

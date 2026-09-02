@@ -20,8 +20,11 @@ public enum TrayDisplayMode
 /// </summary>
 public sealed class AppSettings
 {
-    /// <summary>Time between two sensor readings. Two seconds keeps the tray value lively without load.</summary>
-    public double SampleIntervalSeconds { get; set; } = 2.0;
+    /// <summary>
+    /// Time between two sensor readings. Half a second keeps up with the refresh rate of the
+    /// tray icon; raising it lowers the program's own load at the cost of a lazier display.
+    /// </summary>
+    public double SampleIntervalSeconds { get; set; } = 0.5;
 
     /// <summary>Electricity price per kWh in the currency below.</summary>
     public decimal PricePerKilowattHour { get; set; } = 0.35m;
@@ -38,6 +41,15 @@ public sealed class AppSettings
 
     public TrayDisplayMode TrayDisplay { get; set; } = TrayDisplayMode.TotalWatts;
 
+    /// <summary>How often the number in the notification area is redrawn.</summary>
+    public double TrayRefreshMilliseconds { get; set; } = 500;
+
+    /// <summary>
+    /// The tray icon shows the mean over this window instead of the latest sample. Without it the
+    /// number would jump by tens of watts twice a second and be impossible to read.
+    /// </summary>
+    public double TrayAverageWindowSeconds { get; set; } = 3.0;
+
     /// <summary>Below this the tray icon is green.</summary>
     public double TrayGreenThresholdWatts { get; set; } = 80;
 
@@ -51,11 +63,19 @@ public sealed class AppSettings
     public PowerModelOptions Model { get; set; } = new();
 
     public TimeSpan SampleInterval =>
-        TimeSpan.FromSeconds(Math.Clamp(SampleIntervalSeconds, 1.0, 60.0));
+        TimeSpan.FromSeconds(Math.Clamp(SampleIntervalSeconds, 0.5, 60.0));
+
+    public TimeSpan TrayRefreshInterval =>
+        TimeSpan.FromMilliseconds(Math.Clamp(TrayRefreshMilliseconds, 100, 10_000));
+
+    public TimeSpan TrayAverageWindow =>
+        TimeSpan.FromSeconds(Math.Clamp(TrayAverageWindowSeconds, 0.5, 120));
 
     public AppSettings Clone() => new()
     {
         SampleIntervalSeconds = SampleIntervalSeconds,
+        TrayRefreshMilliseconds = TrayRefreshMilliseconds,
+        TrayAverageWindowSeconds = TrayAverageWindowSeconds,
         PricePerKilowattHour = PricePerKilowattHour,
         CurrencySymbol = CurrencySymbol,
         StartWithWindows = StartWithWindows,

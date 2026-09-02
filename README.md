@@ -88,9 +88,19 @@ anschließend läuft das Programm still im Infobereich weiter.
 * Das **Fenster schließen** beendet das Programm nicht, sondern legt es zurück in die Taskleiste.
   Dieses Verhalten lässt sich in den Einstellungen umstellen.
 
-Die Farbe des Symbols folgt der Last: grün bis 80 W, gelb bis 200 W, darüber rot. Beide Grenzen
-sind einstellbar, ebenso ob das Symbol Watt, den heutigen Verbrauch in kWh oder die heutigen
-Kosten anzeigt.
+Die Zahl im Infobereich wird **alle 500 ms** neu gezeichnet und zeigt den **Mittelwert der
+letzten 3 Sekunden**. Der Momentanwert eines PCs springt zwischen zwei Messungen um zweistellige
+Wattbeträge – ungeglättet wäre die Anzeige bei diesem Takt nicht lesbar. Beide Werte lassen sich
+unter *Einstellungen → Verhalten und Taskleiste* ändern.
+
+Damit sich der Wert bei diesem Takt überhaupt ändern kann, werden die Sensoren standardmäßig
+**alle 0,5 Sekunden** gelesen. Wer die Eigenlast des Programms drücken möchte, stellt das
+Messintervall höher – die Anzeige aktualisiert sich dann weiterhin alle 500 ms, wiederholt aber
+denselben Messwert.
+
+Die Farbe des Symbols folgt der geglätteten Last: grün bis 80 W, gelb bis 200 W, darüber rot.
+Beide Grenzen sind einstellbar, ebenso ob das Symbol Watt, den heutigen Verbrauch in kWh oder
+die heutigen Kosten anzeigt.
 
 ## Die Statistik
 
@@ -166,11 +176,17 @@ Codebasis auf jedem Buildagenten übersetzbar und die Stildefinitionen liegen an
 
 * **Energieintegration:** Jeder Messwert gilt bis zum nächsten (Zero-Order-Hold). Lücken, die
   deutlich länger sind als das Messintervall – Standby, Ruhezustand, beendetes Programm – werden
-  auf ein Intervall begrenzt, damit eine Nacht im Standby nicht als Verbrauch erscheint.
+  auf ein Intervall begrenzt, damit eine Nacht im Standby nicht als Verbrauch erscheint. Die
+  Grenze liegt bei mindestens 10 Sekunden: bei einem Messintervall von 0,5 s wäre ein verzögerter
+  Messwert sonst schon als Standby gewertet worden und seine Energie verlorengegangen.
 * **Doppelzählung:** Eine integrierte Grafikeinheit teilt sich das Leistungsbudget mit der CPU.
   Liegt ein Package-Sensor vor, wird die iGPU deshalb nicht zusätzlich ausgewiesen. Ebenso
   werden die Einzelsensoren der CPU-Kerne ignoriert, weil sie im Package-Wert enthalten sind.
-* **Taskleistensymbol:** Die Zahl wird bei jeder Änderung neu gezeichnet. Das GDI-Handle des
+* **Taskleistensymbol:** Anzeigetakt und Messtakt sind entkoppelt – ein eigener Timer zeichnet
+  das Symbol, der Wert kommt aus einer zeitgewichteten Mittelung über das Anzeigefenster. Zeitlich
+  gewichtet und nicht als einfacher Mittelwert über die Messpunkte, damit drei schnell
+  aufeinanderfolgende Messungen nicht schwerer wiegen als eine, die eine ganze Sekunde abdeckt.
+  Neu gezeichnet wird nur, wenn sich Text oder Farbe tatsächlich ändern. Das GDI-Handle des
   erzeugten Symbols wird sofort wieder freigegeben, damit der Prozess keine Handles verliert.
 * **Nur eine Instanz:** Ein zweiter Start meldet sich beim laufenden Prozess, holt dessen
   Fenster nach vorn und beendet sich – zwei Instanzen würden sich um die Datenbank streiten.

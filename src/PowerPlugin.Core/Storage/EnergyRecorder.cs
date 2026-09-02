@@ -41,8 +41,17 @@ public sealed class EnergyRecorder
     /// <summary>
     /// Gaps longer than this are treated as downtime. The clamped interval is still counted so a
     /// short hiccup does not lose energy, but a night in standby cannot inflate the statistics.
+    /// <para>
+    /// The floor matters at fast sampling rates: at half a second, three intervals are 1.5 s, and
+    /// a garbage collection or a busy machine can easily delay a sample that long. Treating that
+    /// as downtime would quietly lose energy, while a real standby lasts minutes at the very least.
+    /// </para>
     /// </summary>
-    public TimeSpan MaximumGap => TimeSpan.FromTicks(SampleInterval.Ticks * 3);
+    public TimeSpan MaximumGap => TimeSpan.FromTicks(
+        Math.Max(SampleInterval.Ticks * 3, MinimumGapAllowance.Ticks));
+
+    /// <summary>Lower bound for <see cref="MaximumGap"/>, see there.</summary>
+    private static readonly TimeSpan MinimumGapAllowance = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// Called after resuming from standby so the next sample does not integrate over the gap.

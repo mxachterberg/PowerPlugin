@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using PowerPlugin.Core.Estimation;
 using PowerPlugin.Core.Hardware;
 using PowerPlugin.Core.Model;
@@ -75,15 +74,40 @@ public sealed class PowerMonitor : IDisposable
         }
     }
 
-    /// <summary>Recent snapshots for the live chart, oldest first.</summary>
-    public ImmutableArray<PowerSnapshot> LiveHistory
+    /// <summary>
+    /// Total power of the recent snapshots for the live chart, oldest first.
+    /// <para>
+    /// Returns the plain series rather than the snapshots so refreshing the chart copies one
+    /// array of numbers instead of the whole history twice.
+    /// </para>
+    /// </summary>
+    public double[] LiveWattSeries()
     {
-        get
+        lock (_gate)
         {
-            lock (_gate)
+            var series = new double[_live.Count];
+            int index = 0;
+
+            foreach (PowerSnapshot snapshot in _live)
             {
-                return _live.ToImmutableArray();
+                series[index++] = snapshot.TotalWatts;
             }
+
+            return series;
+        }
+    }
+
+    /// <summary>
+    /// Mean power over the last <paramref name="window"/>, used for the tray icon so the
+    /// displayed number does not flicker between two samples.
+    /// </summary>
+    public double AverageWattsOver(TimeSpan window)
+    {
+        lock (_gate)
+        {
+            // Averaging inside the lock avoids copying the whole live history several times
+            // per second just to read a single number.
+            return PowerAverage.TimeWeightedWatts(_live, DateTimeOffset.Now, window, Current.TotalWatts);
         }
     }
 

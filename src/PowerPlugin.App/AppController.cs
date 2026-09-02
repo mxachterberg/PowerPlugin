@@ -30,6 +30,7 @@ internal sealed class AppController : IDisposable
     private readonly TrayController _tray;
     private readonly MainWindow _window;
     private readonly DispatcherTimer _statisticsTimer;
+    private readonly DispatcherTimer _trayTimer;
     private readonly Dispatcher _dispatcher;
 
     private readonly bool _isFirstRun;
@@ -63,6 +64,10 @@ internal sealed class AppController : IDisposable
 
         _statisticsTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = StatisticsInterval };
 
+        // The tray icon runs on its own, faster clock: it is refreshed at a fixed rate and shows a
+        // short term mean, which decouples it from the sampling interval of the sensors.
+        _trayTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = _settings.TrayRefreshInterval };
+
         WireEvents();
     }
 
@@ -75,6 +80,7 @@ internal sealed class AppController : IDisposable
         _window.SetElevationState(ElevationHelper.IsElevated, _monitor.RequiresElevation);
 
         _statisticsTimer.Start();
+        _trayTimer.Start();
         RefreshStatistics();
 
         if (_isFirstRun || !_settings.StartMinimized)
@@ -107,6 +113,7 @@ internal sealed class AppController : IDisposable
             _dispatcher.BeginInvoke(() => DiagnosticsLog.Write($"Messfehler an die Oberfläche gemeldet: {message}"));
 
         _statisticsTimer.Tick += (_, _) => RefreshStatistics();
+        _trayTimer.Tick += (_, _) => RefreshTray();
 
         _tray.OpenRequested += (_, _) => _dispatcher.BeginInvoke(ShowWindow);
         _tray.ExitRequested += (_, _) => _dispatcher.BeginInvoke(Shutdown);
@@ -125,7 +132,8 @@ internal sealed class AppController : IDisposable
 
     private void OnSnapshotUpdated(object? sender, SnapshotEventArgs e)
     {
-        // The monitor samples on a background thread; the UI and the tray icon are thread bound.
+        // The monitor samples on a background thread while the window is thread bound. The tray
+        // icon is not refreshed here - it runs on its own timer with a smoothed value.
         _dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
         {
             if (_disposed)
@@ -133,19 +141,31 @@ internal sealed class AppController : IDisposable
                 return;
             }
 
-            PowerSnapshot snapshot = e.Snapshot;
-
-            _tray.Update(snapshot, _statistics);
-
             if (_window.IsVisible)
             {
-                _window.UpdateLive(snapshot, BuildLiveSeries());
+                _window.UpdateLive(e.Snapshot, BuildLiveSeries());
             }
         });
     }
 
-    private IReadOnlyList<double> BuildLiveSeries() =>
-        _monitor.LiveHistory.Select(s => s.TotalWatts).ToArray();
+    private IReadOnlyList<double> BuildLiveSeries() => _monitor.LiveWattSeries();
+
+    /// <summary>
+    /// Redraws the notification area icon with the mean of the last few seconds. Showing the raw
+    /// sample here would make the number jump around several times per second.
+    /// </summary>
+    private void RefreshTray()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _tray.Update(
+            _monitor.Current,
+            _statistics,
+            _monitor.AverageWattsOver(_settings.TrayAverageWindow));
+    }
 
     private void RefreshStatistics()
     {
@@ -184,7 +204,7 @@ internal sealed class AppController : IDisposable
                 }
 
                 _statistics = task.Result;
-                _tray.Update(_monitor.Current, _statistics);
+                RefreshTray();
 
                 // While the window sits hidden in the tray, rebuilding its charts and tables
                 // every few seconds would be wasted work - it is refreshed when it reappears.
@@ -205,6 +225,7 @@ internal sealed class AppController : IDisposable
         _monitor.SampleInterval = updated.SampleInterval;
         _monitor.UpdateEstimator(new ComponentPowerEstimator(updated.Model));
         _recorder.SampleInterval = updated.SampleInterval;
+        _trayTimer.Interval = updated.TrayRefreshInterval;
 
         _tray.ApplySettings(updated);
         _window.ApplySettings(updated);
@@ -371,6 +392,7 @@ internal sealed class AppController : IDisposable
         SystemEvents.SessionEnding -= OnSessionEnding;
 
         _statisticsTimer.Stop();
+        _trayTimer.Stop();
         _monitor.Dispose();
         _tray.Dispose();
         _store.Dispose();

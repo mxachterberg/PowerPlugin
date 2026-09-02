@@ -78,8 +78,16 @@ internal sealed class TrayController : IDisposable
         }
     }
 
-    /// <summary>Refreshes icon and tooltip from the latest snapshot and today's statistics.</summary>
-    public void Update(PowerSnapshot snapshot, EnergyStatistics statistics)
+    /// <summary>
+    /// Refreshes icon and tooltip.
+    /// </summary>
+    /// <param name="snapshot">Latest sample, used for the per component breakdown in the tooltip.</param>
+    /// <param name="statistics">Today's figures for the tooltip and the alternative display modes.</param>
+    /// <param name="displayWatts">
+    /// The value to show: the mean over the smoothing window rather than the latest sample, so the
+    /// number stays readable at a refresh rate of twice per second.
+    /// </param>
+    public void Update(PowerSnapshot snapshot, EnergyStatistics statistics, double displayWatts)
     {
         if (_disposed)
         {
@@ -88,7 +96,7 @@ internal sealed class TrayController : IDisposable
 
         // Before the first sample arrives there is nothing to show; the application icon
         // stays in place rather than a misleading zero.
-        if (snapshot.TotalWatts <= 0 && _settings.TrayDisplay == TrayDisplayMode.TotalWatts)
+        if (displayWatts <= 0 && _settings.TrayDisplay == TrayDisplayMode.TotalWatts)
         {
             return;
         }
@@ -97,11 +105,11 @@ internal sealed class TrayController : IDisposable
         {
             TrayDisplayMode.TodayKilowattHours => FormatCompact(statistics.Today.EnergyKilowattHours),
             TrayDisplayMode.TodayCost => FormatCompact((double)statistics.TodayCost),
-            _ => Formatting.TrayWatts(snapshot.TotalWatts),
+            _ => Formatting.TrayWatts(displayWatts),
         };
 
         System.Windows.Media.Color themeColor = Theme.LoadColor(
-            snapshot.TotalWatts, _settings.TrayGreenThresholdWatts, _settings.TrayAmberThresholdWatts);
+            displayWatts, _settings.TrayGreenThresholdWatts, _settings.TrayAmberThresholdWatts);
 
         Color color = Color.FromArgb(themeColor.R, themeColor.G, themeColor.B);
 
@@ -118,15 +126,15 @@ internal sealed class TrayController : IDisposable
             _currentIcon = icon;
         }
 
-        _notifyIcon.Text = BuildTooltip(snapshot, statistics);
-        _currentValueItem.Text = $"Aktuell: {Formatting.Watts(snapshot.TotalWatts)}";
+        _notifyIcon.Text = BuildTooltip(snapshot, statistics, displayWatts);
+        _currentValueItem.Text = $"Aktuell: {Formatting.Watts(displayWatts)}";
     }
 
-    private string BuildTooltip(PowerSnapshot snapshot, EnergyStatistics statistics)
+    private string BuildTooltip(PowerSnapshot snapshot, EnergyStatistics statistics, double displayWatts)
     {
         var lines = new List<string>
         {
-            $"PowerPlugin · {Formatting.Watts(snapshot.TotalWatts)}",
+            $"PowerPlugin · {Formatting.Watts(displayWatts)}",
         };
 
         foreach (PowerComponent component in snapshot.Components.Take(3))

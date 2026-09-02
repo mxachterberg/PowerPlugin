@@ -76,6 +76,34 @@ public sealed class EnergyRecorderTests
     }
 
     [Fact]
+    public void ShortDelaysAtFastSamplingRatesAreStillCounted()
+    {
+        var store = new FakeEnergyStore();
+        var recorder = new EnergyRecorder(store, TimeSpan.FromSeconds(0.5));
+
+        // Three times the interval would be 1.5 s, which a busy machine exceeds routinely.
+        // A delay of a few seconds is jitter, not standby, and its energy must not be dropped.
+        recorder.Record(Snapshot(Start, 100));
+        recorder.Record(Snapshot(Start.AddSeconds(4), 100));
+        recorder.Flush();
+
+        Assert.Equal(4.5, store.TotalCoveredSeconds, precision: 3);
+    }
+
+    [Fact]
+    public void RealStandbyIsStillClampedAtAFastSamplingRate()
+    {
+        var store = new FakeEnergyStore();
+        var recorder = new EnergyRecorder(store, TimeSpan.FromSeconds(0.5));
+
+        recorder.Record(Snapshot(Start, 100));
+        recorder.Record(Snapshot(Start.AddMinutes(30), 100));
+        recorder.Flush();
+
+        Assert.Equal(1.0, store.TotalCoveredSeconds, precision: 3);
+    }
+
+    [Fact]
     public void PeakAndMinimumAreTracked()
     {
         var store = new FakeEnergyStore();
