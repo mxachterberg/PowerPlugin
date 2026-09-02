@@ -1,0 +1,22 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors>nullable</WarningsAsErrors>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <Product>PowerPlugin</Product>
+    <Company>PowerPlugin</Company>
+    <Version>1.0.0</Version>
+    <NeutralLanguage>de-DE</NeutralLanguage>
+
+    <!--
+      Allows the Windows-targeted projects (net8.0-windows) to be restored and compiled
+      from a non-Windows machine or CI agent. Has no effect when building on Windows.
+    -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+</Project>

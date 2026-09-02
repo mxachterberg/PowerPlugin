@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>PowerPlugin.App</RootNamespace>
+    <AssemblyName>PowerPlugin</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\PowerPlugin.ico</ApplicationIcon>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Description>Live power consumption monitor for Windows 11 with tray indicator and energy statistics.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      References WPF, Windows Forms (NotifyIcon) and GDI+ without pulling in the
+      Microsoft.NET.Sdk.WindowsDesktop MSBuild SDK, which keeps the project
+      restorable and compilable on non-Windows build agents.
+    -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embedded so the window and the tray fallback can load it without a file on disk. -->
+    <EmbeddedResource Include="Assets\PowerPlugin.ico" LogicalName="PowerPlugin.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PowerPlugin.Core\PowerPlugin.Core.csproj" />
+    <ProjectReference Include="..\PowerPlugin.Windows\PowerPlugin.Windows.csproj" />
+  </ItemGroup>
+
+</Project>
