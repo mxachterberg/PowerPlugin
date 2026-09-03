@@ -28,6 +28,7 @@ public sealed class SettingsStoreTests : IDisposable
         // The tray refreshes twice per second and shows the mean of the last three seconds.
         Assert.Equal(TimeSpan.FromMilliseconds(500), settings.TrayRefreshInterval);
         Assert.Equal(TimeSpan.FromSeconds(3), settings.TrayAverageWindow);
+        Assert.Equal(TrayValueMode.Average, settings.TrayValue);
     }
 
     [Fact]
@@ -94,23 +95,52 @@ public sealed class SettingsStoreTests : IDisposable
         // A refresh every few milliseconds would redraw the icon pointlessly often.
         Assert.Equal(
             TimeSpan.FromMilliseconds(100),
-            new AppSettings { TrayRefreshMilliseconds = 1 }.TrayRefreshInterval);
+            new AppSettings { TrayRefreshSeconds = 0.001 }.TrayRefreshInterval);
 
         Assert.Equal(
             TimeSpan.FromSeconds(0.5),
             new AppSettings { TrayAverageWindowSeconds = 0 }.TrayAverageWindow);
+
+        // A ten minute window is the documented maximum.
+        Assert.Equal(
+            TimeSpan.FromMinutes(10),
+            new AppSettings { TrayAverageWindowSeconds = 99_999 }.TrayAverageWindow);
     }
 
     [Fact]
     public void TrayTimingSurvivesARoundTrip()
     {
         var store = new SettingsStore(_file);
-        store.Save(new AppSettings { TrayRefreshMilliseconds = 250, TrayAverageWindowSeconds = 8 });
+
+        store.Save(new AppSettings
+        {
+            TrayRefreshSeconds = 5,
+            TrayAverageWindowSeconds = 10,
+            TrayValue = TrayValueMode.Instantaneous,
+        });
 
         AppSettings read = store.Load();
 
-        Assert.Equal(250, read.TrayRefreshMilliseconds);
-        Assert.Equal(8, read.TrayAverageWindowSeconds);
+        Assert.Equal(5, read.TrayRefreshSeconds);
+        Assert.Equal(10, read.TrayAverageWindowSeconds);
+        Assert.Equal(TrayValueMode.Instantaneous, read.TrayValue);
+    }
+
+    [Fact]
+    public void InstantaneousModeCollapsesTheAveragingWindow()
+    {
+        // A zero window makes the time weighted average return the latest sample, so both
+        // display modes can share the same code path.
+        var settings = new AppSettings
+        {
+            TrayValue = TrayValueMode.Instantaneous,
+            TrayAverageWindowSeconds = 30,
+        };
+
+        Assert.Equal(TimeSpan.Zero, settings.EffectiveTrayAverageWindow);
+
+        settings.TrayValue = TrayValueMode.Average;
+        Assert.Equal(TimeSpan.FromSeconds(30), settings.EffectiveTrayAverageWindow);
     }
 
     [Fact]

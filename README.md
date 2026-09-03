@@ -88,19 +88,38 @@ anschließend läuft das Programm still im Infobereich weiter.
 * Das **Fenster schließen** beendet das Programm nicht, sondern legt es zurück in die Taskleiste.
   Dieses Verhalten lässt sich in den Einstellungen umstellen.
 
-Die Zahl im Infobereich wird **alle 500 ms** neu gezeichnet und zeigt den **Mittelwert der
-letzten 3 Sekunden**. Der Momentanwert eines PCs springt zwischen zwei Messungen um zweistellige
-Wattbeträge – ungeglättet wäre die Anzeige bei diesem Takt nicht lesbar. Beide Werte lassen sich
-unter *Einstellungen → Verhalten und Taskleiste* ändern.
+### Die Anzeige im Infobereich einstellen
 
-Damit sich der Wert bei diesem Takt überhaupt ändern kann, werden die Sensoren standardmäßig
-**alle 0,5 Sekunden** gelesen. Wer die Eigenlast des Programms drücken möchte, stellt das
-Messintervall höher – die Anzeige aktualisiert sich dann weiterhin alle 500 ms, wiederholt aber
-denselben Messwert.
+Drei Werte bestimmen unabhängig voneinander, was das Symbol zeigt. Sie stehen unter
+*Einstellungen → Anzeige im Infobereich*:
 
-Die Farbe des Symbols folgt der geglätteten Last: grün bis 80 W, gelb bis 200 W, darüber rot.
+| Einstellung | Bedeutung | Standard |
+| --- | --- | --- |
+| **Messintervall** | Wie oft die Sensoren gelesen werden. Gilt auch für Statistik und Verbrauch. | 0,5 s |
+| **Darstellung** | Momentanwert oder Durchschnitt über ein Zeitfenster | Durchschnitt |
+| **Mittelungsfenster** | Länge des Zeitraums, über den gemittelt wird | 3 s |
+| **Darstellungsintervall** | Wie oft die Anzeige neu berechnet wird | 0,5 s |
+
+Weil Darstellungsintervall und Mittelungsfenster getrennt sind, lässt sich jede Kombination
+einstellen:
+
+* alle 5 Sekunden der Durchschnitt der letzten 5 Sekunden → Intervall 5, Fenster 5
+* alle 3 Sekunden eine Momentaufnahme → Intervall 3, Darstellung *Momentanwert*
+* jede Sekunde neu der Durchschnitt der letzten 5 Sekunden → Intervall 1, Fenster 5
+
+Unter den Feldern steht ein Satz, der die eingestellte Kombination in Worten zurückgibt, etwa
+„Alle 5 s wird der Mittelwert der letzten 5 s angezeigt. Das sind rund 10 Messwerte pro Anzeige.“
+Zwei Kombinationen führen leicht in die Irre und werden dort ausdrücklich benannt: ein
+Mittelungsfenster, das kaum länger ist als das Messintervall (glättet nichts), und ein
+Darstellungsintervall, das kürzer ist als das Messintervall (die Anzeige wiederholt sich dann,
+bis eine neue Messung vorliegt).
+
+Ohne Glättung springt der Wert übrigens deutlich: Der Momentanwert eines PCs ändert sich zwischen
+zwei Messungen um zweistellige Wattbeträge. Deshalb ist der Durchschnitt die Voreinstellung.
+
+Die Farbe des Symbols folgt dem angezeigten Wert: grün bis 80 W, gelb bis 200 W, darüber rot.
 Beide Grenzen sind einstellbar, ebenso ob das Symbol Watt, den heutigen Verbrauch in kWh oder
-die heutigen Kosten anzeigt.
+die heutigen Kosten anzeigt – bei kWh und Kosten wirken Messintervall und Mittelung nicht.
 
 ## Die Statistik
 
@@ -186,6 +205,7 @@ Codebasis auf jedem Buildagenten übersetzbar und die Stildefinitionen liegen an
   das Symbol, der Wert kommt aus einer zeitgewichteten Mittelung über das Anzeigefenster. Zeitlich
   gewichtet und nicht als einfacher Mittelwert über die Messpunkte, damit drei schnell
   aufeinanderfolgende Messungen nicht schwerer wiegen als eine, die eine ganze Sekunde abdeckt.
+  Der Momentanwert ist derselbe Codepfad mit einem Fenster der Länge null.
   Neu gezeichnet wird nur, wenn sich Text oder Farbe tatsächlich ändern. Das GDI-Handle des
   erzeugten Symbols wird sofort wieder freigegeben, damit der Prozess keine Handles verliert.
 * **Nur eine Instanz:** Ein zweiter Start meldet sich beim laufenden Prozess, holt dessen

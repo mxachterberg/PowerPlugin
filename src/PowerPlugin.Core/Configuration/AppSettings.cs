@@ -15,6 +15,16 @@ public enum TrayDisplayMode
     TodayCost,
 }
 
+/// <summary>How the power value shown in the notification area is derived from the samples.</summary>
+public enum TrayValueMode
+{
+    /// <summary>The latest sample, unsmoothed. Follows load changes immediately but jumps around.</summary>
+    Instantaneous,
+
+    /// <summary>The mean over <see cref="AppSettings.TrayAverageWindowSeconds"/>.</summary>
+    Average,
+}
+
 /// <summary>
 /// User configuration, persisted as JSON.
 /// </summary>
@@ -41,12 +51,20 @@ public sealed class AppSettings
 
     public TrayDisplayMode TrayDisplay { get; set; } = TrayDisplayMode.TotalWatts;
 
-    /// <summary>How often the number in the notification area is redrawn.</summary>
-    public double TrayRefreshMilliseconds { get; set; } = 500;
+    /// <summary>
+    /// How often the value in the notification area is recalculated. Independent of both the
+    /// sampling rate and the averaging window, so "every five seconds the mean of the last five"
+    /// and "every second the mean of the last five" are both possible.
+    /// </summary>
+    public double TrayRefreshSeconds { get; set; } = 0.5;
+
+    /// <summary>Whether the tray shows the latest sample or a mean over a window.</summary>
+    public TrayValueMode TrayValue { get; set; } = TrayValueMode.Average;
 
     /// <summary>
-    /// The tray icon shows the mean over this window instead of the latest sample. Without it the
-    /// number would jump by tens of watts twice a second and be impossible to read.
+    /// Length of the averaging window, used when <see cref="TrayValue"/> is
+    /// <see cref="TrayValueMode.Average"/>. Without smoothing the number jumps by tens of watts
+    /// between two samples and is hard to read at a fast refresh rate.
     /// </summary>
     public double TrayAverageWindowSeconds { get; set; } = 3.0;
 
@@ -66,15 +84,23 @@ public sealed class AppSettings
         TimeSpan.FromSeconds(Math.Clamp(SampleIntervalSeconds, 0.5, 60.0));
 
     public TimeSpan TrayRefreshInterval =>
-        TimeSpan.FromMilliseconds(Math.Clamp(TrayRefreshMilliseconds, 100, 10_000));
+        TimeSpan.FromSeconds(Math.Clamp(TrayRefreshSeconds, 0.1, 60.0));
 
     public TimeSpan TrayAverageWindow =>
-        TimeSpan.FromSeconds(Math.Clamp(TrayAverageWindowSeconds, 0.5, 120));
+        TimeSpan.FromSeconds(Math.Clamp(TrayAverageWindowSeconds, 0.5, 600.0));
+
+    /// <summary>
+    /// The window the tray actually averages over. Zero in instantaneous mode, which makes the
+    /// averaging collapse to the latest sample.
+    /// </summary>
+    public TimeSpan EffectiveTrayAverageWindow =>
+        TrayValue == TrayValueMode.Average ? TrayAverageWindow : TimeSpan.Zero;
 
     public AppSettings Clone() => new()
     {
         SampleIntervalSeconds = SampleIntervalSeconds,
-        TrayRefreshMilliseconds = TrayRefreshMilliseconds,
+        TrayRefreshSeconds = TrayRefreshSeconds,
+        TrayValue = TrayValue,
         TrayAverageWindowSeconds = TrayAverageWindowSeconds,
         PricePerKilowattHour = PricePerKilowattHour,
         CurrencySymbol = CurrencySymbol,

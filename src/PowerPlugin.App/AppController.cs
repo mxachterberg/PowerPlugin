@@ -151,8 +151,9 @@ internal sealed class AppController : IDisposable
     private IReadOnlyList<double> BuildLiveSeries() => _monitor.LiveWattSeries();
 
     /// <summary>
-    /// Redraws the notification area icon with the mean of the last few seconds. Showing the raw
-    /// sample here would make the number jump around several times per second.
+    /// Redraws the notification area icon. Whether that shows the latest sample or a mean over a
+    /// window is the user's choice; an empty window makes the averaging collapse to the latest
+    /// sample, so both modes take the same path.
     /// </summary>
     private void RefreshTray()
     {
@@ -164,7 +165,7 @@ internal sealed class AppController : IDisposable
         _tray.Update(
             _monitor.Current,
             _statistics,
-            _monitor.AverageWattsOver(_settings.TrayAverageWindow));
+            _monitor.AverageWattsOver(_settings.EffectiveTrayAverageWindow));
     }
 
     private void RefreshStatistics()

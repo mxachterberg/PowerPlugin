@@ -33,6 +33,10 @@ internal sealed class SettingsPage : ScrollViewer
     private readonly RadioButton _trayEnergy;
     private readonly RadioButton _trayCost;
 
+    private readonly RadioButton _valueInstant;
+    private readonly RadioButton _valueAverage;
+    private readonly TextBlock _traySummary;
+
     private readonly TextBlock _status;
     private readonly TextBlock _elevationInfo;
     private readonly Button _elevateButton;
@@ -64,9 +68,16 @@ internal sealed class SettingsPage : ScrollViewer
         _startMinimized = Theme.CheckBox("Beim Start nur das Taskleistensymbol anzeigen", true);
         _includeLosses = Theme.CheckBox("Netzteilverluste einrechnen (Wert entspricht dann der Steckdose)", true);
 
-        _trayWatts = Radio("Aktuelle Leistung in Watt");
-        _trayEnergy = Radio("Heutiger Verbrauch in kWh");
-        _trayCost = Radio("Heutige Kosten");
+        _trayWatts = Radio("Aktuelle Leistung in Watt", "TrayDisplay");
+        _trayEnergy = Radio("Heutiger Verbrauch in kWh", "TrayDisplay");
+        _trayCost = Radio("Heutige Kosten", "TrayDisplay");
+
+        _valueInstant = Radio("Momentanwert - der zuletzt gemessene Wert, ungeglättet", "TrayValue");
+        _valueAverage = Radio("Durchschnitt über das Zeitfenster unten", "TrayValue");
+
+        _traySummary = Theme.Muted(string.Empty);
+        _traySummary.TextWrapping = TextWrapping.Wrap;
+        _traySummary.Margin = new Thickness(0, 10, 0, 0);
 
         _status = Theme.Muted(string.Empty);
         _status.Margin = new Thickness(0, 10, 0, 0);
@@ -78,6 +89,7 @@ internal sealed class SettingsPage : ScrollViewer
         _elevateButton.Click += (_, _) => RestartElevatedRequested?.Invoke(this, EventArgs.Empty);
 
         Content = BuildContent();
+        WireSummaryUpdates();
         Load(_settings);
     }
 
@@ -115,7 +127,7 @@ internal sealed class SettingsPage : ScrollViewer
         _retention.Text = _settings.HistoryRetentionDays.ToString(CultureInfo.CurrentCulture);
         _greenThreshold.Text = _settings.TrayGreenThresholdWatts.ToString("0", CultureInfo.CurrentCulture);
         _amberThreshold.Text = _settings.TrayAmberThresholdWatts.ToString("0", CultureInfo.CurrentCulture);
-        _trayRefresh.Text = _settings.TrayRefreshMilliseconds.ToString("0", CultureInfo.CurrentCulture);
+        _trayRefresh.Text = _settings.TrayRefreshSeconds.ToString("0.##", CultureInfo.CurrentCulture);
         _trayAverage.Text = _settings.TrayAverageWindowSeconds.ToString("0.#", CultureInfo.CurrentCulture);
 
         _autostart.IsChecked = _settings.StartWithWindows;
@@ -126,6 +138,39 @@ internal sealed class SettingsPage : ScrollViewer
         _trayWatts.IsChecked = _settings.TrayDisplay == TrayDisplayMode.TotalWatts;
         _trayEnergy.IsChecked = _settings.TrayDisplay == TrayDisplayMode.TodayKilowattHours;
         _trayCost.IsChecked = _settings.TrayDisplay == TrayDisplayMode.TodayCost;
+
+        _valueInstant.IsChecked = _settings.TrayValue == TrayValueMode.Instantaneous;
+        _valueAverage.IsChecked = _settings.TrayValue == TrayValueMode.Average;
+
+        UpdateTraySummary();
+    }
+
+    /// <summary>
+    /// Reads the current inputs back as a sentence, so the user can see what the combination of
+    /// refresh rate, averaging window and sampling interval actually does before saving.
+    /// </summary>
+    private void UpdateTraySummary()
+    {
+        AppSettings preview = ReadInputs();
+
+        _trayAverage.IsEnabled = preview.TrayValue == TrayValueMode.Average
+            && preview.TrayDisplay == TrayDisplayMode.TotalWatts;
+
+        _traySummary.Text = TrayDisplayDescription.Describe(preview);
+    }
+
+    /// <summary>Wires every input that feeds the summary to keep it live while typing.</summary>
+    private void WireSummaryUpdates()
+    {
+        foreach (TextBox box in new[] { _interval, _trayRefresh, _trayAverage })
+        {
+            box.TextChanged += (_, _) => UpdateTraySummary();
+        }
+
+        foreach (RadioButton radio in new[] { _trayWatts, _trayEnergy, _trayCost, _valueInstant, _valueAverage })
+        {
+            radio.Checked += (_, _) => UpdateTraySummary();
+        }
     }
 
     private UIElement BuildContent()
@@ -142,30 +187,40 @@ internal sealed class SettingsPage : ScrollViewer
         AddRow(general, "Verlauf aufbewahren (Tage)", "Ältere Messwerte werden beim Start gelöscht. 0 behält alles.", _retention);
         stack.Children.Add(Section("Tarif und Messung", general));
 
+        // ---- Notification area -------------------------------------------------------
+        var tray = new StackPanel();
+
+        tray.Children.Add(Caption("Angezeigte Größe"));
+        tray.Children.Add(_trayWatts);
+        tray.Children.Add(_trayEnergy);
+        tray.Children.Add(_trayCost);
+
+        tray.Children.Add(Caption("Wie die Leistung dargestellt wird"));
+        tray.Children.Add(_valueInstant);
+        tray.Children.Add(_valueAverage);
+
+        var trayTiming = new Grid();
+        AddRow(trayTiming, "Mittelungsfenster (Sekunden)",
+            "Länge des Zeitraums, über den gemittelt wird - zum Beispiel 3 oder 10 Sekunden. " +
+            "Gilt nur für die Darstellung als Durchschnitt.", _trayAverage);
+        AddRow(trayTiming, "Darstellungsintervall (Sekunden)",
+            "Wie oft die Anzeige neu berechnet wird. Unabhängig vom Mittelungsfenster: " +
+            "0,5 zeigt zweimal pro Sekunde einen neuen Wert, 5 nur alle fünf Sekunden.", _trayRefresh);
+        AddRow(trayTiming, "Symbol grün bis (W)", "Bis zu diesem Wert wird das Symbol grün dargestellt.", _greenThreshold);
+        AddRow(trayTiming, "Symbol gelb bis (W)", "Darüber wechselt das Symbol auf Rot.", _amberThreshold);
+        tray.Children.Add(trayTiming);
+
+        tray.Children.Add(_traySummary);
+
+        stack.Children.Add(Section("Anzeige im Infobereich", tray));
+
         // ---- Behaviour --------------------------------------------------------------
         var behaviour = new StackPanel();
         behaviour.Children.Add(_autostart);
         behaviour.Children.Add(_closeToTray);
         behaviour.Children.Add(_startMinimized);
 
-        TextBlock trayCaption = Theme.Muted("Anzeige im Infobereich");
-        trayCaption.Margin = new Thickness(0, 10, 0, 4);
-        behaviour.Children.Add(trayCaption);
-        behaviour.Children.Add(_trayWatts);
-        behaviour.Children.Add(_trayEnergy);
-        behaviour.Children.Add(_trayCost);
-
-        var thresholds = new Grid();
-        AddRow(thresholds, "Symbol grün bis (W)", "Bis zu diesem Wert wird das Symbol grün dargestellt.", _greenThreshold);
-        AddRow(thresholds, "Symbol gelb bis (W)", "Darüber wechselt das Symbol auf Rot.", _amberThreshold);
-        AddRow(thresholds, "Aktualisierung (ms)",
-            "Takt, in dem die Zahl im Infobereich neu gezeichnet wird.", _trayRefresh);
-        AddRow(thresholds, "Glättung (Sekunden)",
-            "Angezeigt wird der Mittelwert dieses Zeitfensters statt des letzten Messwerts. " +
-            "Ohne Glättung springt die Zahl mehrmals pro Sekunde um zweistellige Beträge.", _trayAverage);
-        behaviour.Children.Add(thresholds);
-
-        stack.Children.Add(Section("Verhalten und Taskleiste", behaviour));
+        stack.Children.Add(Section("Verhalten", behaviour));
 
         // ---- Model ------------------------------------------------------------------
         var model = new StackPanel();
@@ -245,6 +300,13 @@ internal sealed class SettingsPage : ScrollViewer
         return stack;
     }
 
+    private static TextBlock Caption(string text)
+    {
+        TextBlock caption = Theme.Muted(text);
+        caption.Margin = new Thickness(0, 10, 0, 4);
+        return caption;
+    }
+
     private static Border Section(string title, UIElement content)
     {
         var stack = new StackPanel();
@@ -288,17 +350,32 @@ internal sealed class SettingsPage : ScrollViewer
         grid.Children.Add(input);
     }
 
-    private static RadioButton Radio(string caption) => new()
+    private static RadioButton Radio(string caption, string groupName) => new()
     {
         Content = caption,
         FontFamily = Theme.UiFont,
         FontSize = 12.5,
         Foreground = Theme.TextBrush,
         Margin = new Thickness(0, 4, 0, 4),
-        GroupName = "TrayDisplay",
+        GroupName = groupName,
     };
 
     private void Save()
+    {
+        AppSettings updated = ReadInputs();
+
+        _settings = updated;
+        Load(updated);
+
+        _status.Text = $"Gespeichert um {DateTime.Now:HH:mm:ss}. Die Änderungen sind sofort aktiv.";
+        SettingsSaved?.Invoke(this, updated);
+    }
+
+    /// <summary>
+    /// Parses every input into a settings object. Unreadable input keeps the stored value, so a
+    /// half-typed number never destroys a setting.
+    /// </summary>
+    private AppSettings ReadInputs()
     {
         AppSettings updated = _settings.Clone();
 
@@ -308,8 +385,9 @@ internal sealed class SettingsPage : ScrollViewer
         updated.HistoryRetentionDays = (int)ParseDouble(_retention.Text, updated.HistoryRetentionDays, 0, 3650);
         updated.TrayGreenThresholdWatts = ParseDouble(_greenThreshold.Text, updated.TrayGreenThresholdWatts, 1, 5000);
         updated.TrayAmberThresholdWatts = ParseDouble(_amberThreshold.Text, updated.TrayAmberThresholdWatts, 1, 5000);
-        updated.TrayRefreshMilliseconds = ParseDouble(_trayRefresh.Text, updated.TrayRefreshMilliseconds, 100, 10_000);
-        updated.TrayAverageWindowSeconds = ParseDouble(_trayAverage.Text, updated.TrayAverageWindowSeconds, 0.5, 120);
+        updated.TrayRefreshSeconds = ParseDouble(_trayRefresh.Text, updated.TrayRefreshSeconds, 0.1, 60);
+        updated.TrayAverageWindowSeconds = ParseDouble(_trayAverage.Text, updated.TrayAverageWindowSeconds, 0.5, 600);
+        updated.TrayValue = _valueInstant.IsChecked == true ? TrayValueMode.Instantaneous : TrayValueMode.Average;
 
         // A green limit above the amber limit would leave the amber band empty.
         if (updated.TrayAmberThresholdWatts <= updated.TrayGreenThresholdWatts)
@@ -338,11 +416,7 @@ internal sealed class SettingsPage : ScrollViewer
             ? null
             : TryParseDouble(_cpuTdp.Text, 5, 500) ?? updated.Model.CpuTdpWattsOverride;
 
-        _settings = updated;
-        Load(updated);
-
-        _status.Text = $"Gespeichert um {DateTime.Now:HH:mm:ss}. Die Änderungen sind sofort aktiv.";
-        SettingsSaved?.Invoke(this, updated);
+        return updated;
     }
 
     /// <summary>
