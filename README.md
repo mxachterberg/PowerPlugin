@@ -47,15 +47,42 @@ Läuft ein Notebook im Akkubetrieb, liefert die ACPI-Batterie die tatsächliche 
 Systems. In diesem Fall werden die geschätzten Anteile so skaliert, dass die Aufschlüsselung
 exakt zu dieser Messung passt; Sensorwerte bleiben unangetastet. Das ist der genaueste Modus.
 
-Auf einem Desktop ohne Administratorrechte fehlt der CPU-Leistungssensor. Das Programm weist
-darauf hin und bietet einen Neustart mit erhöhten Rechten an.
+Fehlt der CPU-Leistungssensor, nennt das Programm unter *Einstellungen → Sensorzugriff* den
+konkreten Grund: fehlende Administratorrechte (dann bietet es einen Neustart an), kein
+installierter Hilfstreiber (siehe unten), oder eine Plattform ohne diese Register, etwa eine
+virtuelle Maschine.
 
 ## Voraussetzungen
 
 * Windows 10 (1809) oder Windows 11, x64
 * [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) – oder ein
   self-contained Build, siehe unten
-* Für die CPU-Leistungssensoren: Start als Administrator (optional, das Programm läuft auch ohne)
+* Für echte CPU-Leistungswerte: [PawnIO](https://pawnio.eu) installiert **und** Start als
+  Administrator. Beides ist optional – ohne läuft das Programm mit geschätzter CPU-Leistung.
+
+### Kernel-Treiber und Virenscanner
+
+Die Leistungsaufnahme der CPU steht in modellspezifischen Registern (Intel RAPL, AMD SMU). Kein
+Windows-Programm kann die ohne Kernel-Treiber lesen – deshalb bringt jedes Tool, das echte
+CPU-Watt anzeigt, einen mit.
+
+**PowerPlugin bringt bewusst keinen mit.** Der Treiber wird nicht mitgeliefert, nicht entpackt und
+nicht installiert. Ist [PawnIO](https://pawnio.eu) auf dem System vorhanden, nutzt die
+Sensorbibliothek ihn; sonst schätzt das Modell die CPU aus der Auslastung. Alles andere –
+Grafikkarte, Laufwerke, Arbeitsspeicher, Akku – braucht ohnehin keinen Treiber.
+
+> **Hinweis für Nutzer früherer Builds:** Bis einschließlich Version 0.9.4 der Sensorbibliothek
+> wurde beim Start als Administrator eine Datei `PowerPlugin.sys` neben der Anwendung angelegt.
+> Das war **WinRing0**, ein Treiber, der jedem Aufrufer uneingeschränkten Zugriff auf
+> modellspezifische Register und den physischen Speicher gibt. Genau deshalb meldet Microsoft
+> Defender ihn als Bedrohung (`WinNT/Winring0`) – das ist **kein Fehlalarm**: eine installierte
+> Kopie ist ein fertiges Werkzeug zur Rechteausweitung, unabhängig davon, welches Programm sie
+> mitgebracht hat.
+>
+> Seit Version 0.9.6 nutzt die Bibliothek stattdessen PawnIO, das nur eng begrenzte, signierte
+> Module ausführt statt beliebiger Register- und Speicherzugriffe. PowerPlugin löscht eine
+> zurückgebliebene `PowerPlugin.sys` beim Start. Eine Ausnahme im Virenscanner ist **nicht**
+> nötig und sollte nicht eingerichtet werden.
 
 ## Bauen und starten
 
@@ -67,12 +94,19 @@ dotnet build -c Release
 dotnet test
 
 # Startbereite Anwendung erzeugen (.NET-Runtime muss installiert sein)
-dotnet publish src/PowerPlugin.App -c Release -r win-x64 --self-contained false -o publish
+dotnet publish src/PowerPlugin.App -c Release -o publish
 
 # Alternativ: alles in einer Datei, ohne installierte .NET-Runtime
-dotnet publish src/PowerPlugin.App -c Release -r win-x64 --self-contained true `
+dotnet publish src/PowerPlugin.App -c Release --self-contained true `
     -p:PublishSingleFile=true -o publish
+
+# Für ARM-Geräte
+dotnet publish src/PowerPlugin.App -c Release -r win-arm64 -o publish
 ```
+
+> Die Anwendung baut standardmäßig für `win-x64`. Das ist nötig, weil die Sensorbibliothek ihre
+> Implementierung nur unter `runtimes/<rid>/` ausliefert – ohne Runtime-Identifier landet sie gar
+> nicht erst in der Ausgabe.
 
 Danach `publish\PowerPlugin.exe` starten. Beim ersten Start öffnet sich das Statistikfenster,
 anschließend läuft das Programm still im Infobereich weiter.

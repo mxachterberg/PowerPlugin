@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using PowerPlugin.Core.Configuration;
+using PowerPlugin.Core.Hardware;
+using PowerPlugin.Windows;
 
 namespace PowerPlugin.App.Ui;
 
@@ -40,6 +42,7 @@ internal sealed class SettingsPage : ScrollViewer
     private readonly TextBlock _status;
     private readonly TextBlock _elevationInfo;
     private readonly Button _elevateButton;
+    private readonly TextBlock _helperDriverHint;
 
     private AppSettings _settings;
 
@@ -88,6 +91,11 @@ internal sealed class SettingsPage : ScrollViewer
         _elevateButton = Theme.Button("Als Administrator neu starten");
         _elevateButton.Click += (_, _) => RestartElevatedRequested?.Invoke(this, EventArgs.Empty);
 
+        _helperDriverHint = Theme.Muted($"Bezugsquelle: {HelperDriver.DownloadUrl}");
+        _helperDriverHint.TextWrapping = TextWrapping.Wrap;
+        _helperDriverHint.Margin = new Thickness(0, 8, 0, 0);
+        _helperDriverHint.Visibility = Visibility.Collapsed;
+
         Content = BuildContent();
         WireSummaryUpdates();
         Load(_settings);
@@ -101,16 +109,41 @@ internal sealed class SettingsPage : ScrollViewer
 
     public event EventHandler? RestartElevatedRequested;
 
-    public void SetElevationState(bool isElevated, bool sensorsMissing)
+    /// <summary>
+    /// Explains the state of the CPU sensors. The two causes - missing rights and missing helper
+    /// driver - need different answers, and only one of them can be fixed from inside the program.
+    /// </summary>
+    public void SetSensorAccess(SensorAccessState access, string? helperVersion)
     {
-        _elevateButton.Visibility = isElevated ? Visibility.Collapsed : Visibility.Visible;
+        _elevateButton.Visibility = access == SensorAccessState.NeedsAdministrator
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
-        _elevationInfo.Text = isElevated
-            ? "Das Programm läuft mit Administratorrechten. Die Leistungssensoren von CPU und Mainboard sind vollständig verfügbar."
-            : sensorsMissing
-                ? "Ohne Administratorrechte lassen sich die Leistungsregister der CPU (Intel RAPL / AMD SMU) nicht auslesen. " +
-                  "Die CPU-Leistung wird deshalb aus der Auslastung geschätzt. Ein Neustart mit erhöhten Rechten liefert echte Messwerte."
-                : "Das Programm läuft ohne Administratorrechte. Alle benötigten Sensoren sind trotzdem verfügbar.";
+        _helperDriverHint.Visibility = access == SensorAccessState.NeedsHelperDriver
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        _elevationInfo.Text = access switch
+        {
+            SensorAccessState.Available =>
+                $"Die Leistungssensoren der CPU werden ausgelesen. Hilfstreiber: {HelperDriver.Name} " +
+                $"{helperVersion ?? "installiert"}.",
+
+            SensorAccessState.NeedsAdministrator =>
+                $"{HelperDriver.Name} ist installiert, aber das Programm läuft ohne Administratorrechte. " +
+                "Die Leistungsregister der CPU lassen sich deshalb nicht auslesen; die CPU-Leistung wird " +
+                "aus der Auslastung geschätzt.",
+
+            SensorAccessState.NeedsHelperDriver =>
+                "Die Leistungsaufnahme der CPU steht in Registern, die kein Windows-Programm ohne " +
+                $"Kernel-Treiber lesen kann. PowerPlugin bringt bewusst keinen mit. Wird {HelperDriver.Name} " +
+                "installiert, liefert die CPU echte Messwerte statt einer Schätzung. Alles andere - " +
+                "Grafikkarte, Laufwerke, Akku - funktioniert auch ohne.",
+
+            _ =>
+                "Dieses System stellt keine Leistungsregister für die CPU bereit, etwa in einer " +
+                "virtuellen Maschine. Die CPU-Leistung wird aus der Auslastung geschätzt.",
+        };
     }
 
     public void Load(AppSettings settings)
@@ -250,6 +283,7 @@ internal sealed class SettingsPage : ScrollViewer
         // ---- Sensors ----------------------------------------------------------------
         var sensors = new StackPanel();
         sensors.Children.Add(_elevationInfo);
+        sensors.Children.Add(_helperDriverHint);
         _elevateButton.HorizontalAlignment = HorizontalAlignment.Left;
         _elevateButton.Margin = new Thickness(0, 10, 0, 0);
         sensors.Children.Add(_elevateButton);

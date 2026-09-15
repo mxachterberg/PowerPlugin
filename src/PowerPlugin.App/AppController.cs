@@ -46,6 +46,10 @@ internal sealed class AppController : IDisposable
         _isFirstRun = !File.Exists(_settingsStore.FilePath);
         _settings = _settingsStore.Load();
 
+        // Builds up to 0.9.4 of the sensor library dropped a WinRing0 kernel driver next to the
+        // executable. Nothing writes it any more; an existing copy is removed here.
+        HelperDriver.RemoveLegacyDriverFiles();
+
         _store = new SqliteEnergyStore(AppPaths.DatabaseFile);
         _store.Initialize();
         PurgeOldHistory();
@@ -77,7 +81,7 @@ internal sealed class AppController : IDisposable
 
         _monitor.Start();
         _window.SetHardwareSummary(_monitor.Inventory);
-        _window.SetElevationState(ElevationHelper.IsElevated, _monitor.RequiresElevation);
+        _window.SetSensorAccess(_monitor.CpuSensorAccess, _monitor.HelperDriverVersion);
 
         _statisticsTimer.Start();
         _trayTimer.Start();
@@ -102,7 +106,7 @@ internal sealed class AppController : IDisposable
         _window.ShowAndActivate();
         _window.UpdateLive(_monitor.Current, BuildLiveSeries());
         _window.UpdateStatistics(_statistics);
-        _window.SetElevationState(ElevationHelper.IsElevated, _monitor.RequiresElevation);
+        _window.SetSensorAccess(_monitor.CpuSensorAccess, _monitor.HelperDriverVersion);
         RefreshStatistics();
     }
 
@@ -212,7 +216,7 @@ internal sealed class AppController : IDisposable
                 if (_window.IsVisible)
                 {
                     _window.UpdateStatistics(_statistics);
-                    _window.SetElevationState(ElevationHelper.IsElevated, _monitor.RequiresElevation);
+                    _window.SetSensorAccess(_monitor.CpuSensorAccess, _monitor.HelperDriverVersion);
                 }
             });
         }, TaskScheduler.Default);

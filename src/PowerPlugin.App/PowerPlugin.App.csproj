@@ -8,6 +8,15 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\PowerPlugin.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!--
+      The sensor library ships its implementation only under runtimes/<rid>/, so a build without
+      a runtime identifier copies nothing and the application fails to start. Naming the
+      identifier here makes a plain "dotnet build" produce a runnable output; pass
+      -r win-arm64 to override it.
+    -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <SelfContained Condition="'$(SelfContained)' == ''">false</SelfContained>
     <Description>Live power consumption monitor for Windows 11 with tray indicator and energy statistics.</Description>
   </PropertyGroup>
 

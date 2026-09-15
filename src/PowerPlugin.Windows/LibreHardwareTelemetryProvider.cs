@@ -179,11 +179,28 @@ public sealed class LibreHardwareTelemetryProvider : IHardwareTelemetryProvider
             BatteryDischargeWatts = battery.DischargeWatts,
             IsOnAcPower = battery.IsOnAcPower,
             DisplayBrightness = _isMobileSystem ? _brightness.Read() : null,
-
-            // Without the kernel driver there is no RAPL access, so the CPU package power
-            // is missing and the model has to estimate it.
-            RequiresElevation = !_isElevated && cpuPackageWatts is null,
+            CpuSensorAccess = DetermineCpuSensorAccess(cpuPackageWatts),
+            HelperDriverVersion = HelperDriver.InstalledVersion,
         };
+    }
+
+    /// <summary>
+    /// Works out why the package sensor is missing so the user interface can name the actual
+    /// cause instead of always blaming the missing administrator rights.
+    /// </summary>
+    private SensorAccessState DetermineCpuSensorAccess(double? cpuPackageWatts)
+    {
+        if (cpuPackageWatts is > 0)
+        {
+            return SensorAccessState.Available;
+        }
+
+        if (!HelperDriver.IsInstalled)
+        {
+            return SensorAccessState.NeedsHelperDriver;
+        }
+
+        return _isElevated ? SensorAccessState.Unavailable : SensorAccessState.NeedsAdministrator;
     }
 
     // ---- Sensor helpers -----------------------------------------------------------

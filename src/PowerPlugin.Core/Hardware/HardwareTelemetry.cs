@@ -1,6 +1,29 @@
 namespace PowerPlugin.Core.Hardware;
 
 /// <summary>
+/// Why the CPU package power sensor is or is not readable.
+/// <para>
+/// Reading it means reading model specific registers, which no user mode API on Windows exposes.
+/// That needs a kernel helper driver plus administrator rights, and both can be missing
+/// independently - the user deserves to know which one it is.
+/// </para>
+/// </summary>
+public enum SensorAccessState
+{
+    /// <summary>The package sensor is being read.</summary>
+    Available,
+
+    /// <summary>The helper driver is present, but the program is not running elevated.</summary>
+    NeedsAdministrator,
+
+    /// <summary>No helper driver is installed on this machine.</summary>
+    NeedsHelperDriver,
+
+    /// <summary>The platform does not expose the sensor at all, e.g. inside a virtual machine.</summary>
+    Unavailable,
+}
+
+/// <summary>
 /// One reading of a hardware power sensor.
 /// </summary>
 /// <param name="Key">Matches the key of the inventory item the sensor belongs to.</param>
@@ -59,6 +82,9 @@ public sealed record HardwareTelemetry
     /// <summary>Display brightness as a fraction, used to model the internal panel of a notebook.</summary>
     public double? DisplayBrightness { get; init; }
 
-    /// <summary>Set when the sensor backend is running without the privileges it needs.</summary>
-    public bool RequiresElevation { get; init; }
+    /// <summary>Why the CPU package power sensor is or is not available.</summary>
+    public SensorAccessState CpuSensorAccess { get; init; } = SensorAccessState.Unavailable;
+
+    /// <summary>Version of the installed helper driver, for the diagnostics page.</summary>
+    public string? HelperDriverVersion { get; init; }
 }
