@@ -55,8 +55,11 @@ public sealed class PowerMonitor : IDisposable
 
     public HardwareInventory Inventory => _inventory;
 
-    /// <summary>True when the sensor backend reported that it needs administrator rights.</summary>
-    public bool RequiresElevation { get; private set; }
+    /// <summary>Why the CPU package power sensor is or is not available.</summary>
+    public SensorAccessState CpuSensorAccess { get; private set; } = SensorAccessState.Unavailable;
+
+    /// <summary>Version of the installed helper driver, if any.</summary>
+    public string? HelperDriverVersion { get; private set; }
 
     public TimeSpan SampleInterval
     {
@@ -213,7 +216,8 @@ public sealed class PowerMonitor : IDisposable
         try
         {
             HardwareTelemetry telemetry = _provider.Read();
-            RequiresElevation = telemetry.RequiresElevation;
+            CpuSensorAccess = telemetry.CpuSensorAccess;
+            HelperDriverVersion = telemetry.HelperDriverVersion;
 
             PowerSnapshot snapshot = _estimator.Estimate(_inventory, telemetry, DateTimeOffset.Now);
 

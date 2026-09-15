@@ -21,6 +21,8 @@ internal sealed class MainWindow : Window
     private readonly ContentControl _confidenceBadge = new();
     private readonly ContentControl _sourceBadge = new();
     private readonly Border _elevationBanner;
+    private readonly TextBlock _elevationBannerText;
+    private readonly Button _elevationBannerButton;
     private readonly TextBlock _statusText;
 
     private readonly OverviewPage _overview;
@@ -71,6 +73,8 @@ internal sealed class MainWindow : Window
         _sourceBadge.Content = Theme.Badge("…", Theme.TextMuted);
 
         _statusText = Theme.Muted(string.Empty, 10.5);
+        _elevationBannerText = Theme.Body(string.Empty);
+        _elevationBannerButton = Theme.Button("Neu starten");
         _elevationBanner = BuildElevationBanner();
 
         _pageHost = new ContentControl { Content = _overview };
@@ -191,12 +195,11 @@ internal sealed class MainWindow : Window
 
     private Border BuildElevationBanner()
     {
-        var text = Theme.Body(
-            "Ohne Administratorrechte fehlen die Leistungssensoren der CPU. Die CPU-Leistung wird derzeit geschätzt.");
+        TextBlock text = _elevationBannerText;
         text.TextWrapping = TextWrapping.Wrap;
         text.VerticalAlignment = VerticalAlignment.Center;
 
-        Button restart = Theme.Button("Neu starten");
+        Button restart = _elevationBannerButton;
         restart.Margin = new Thickness(14, 0, 0, 0);
         restart.VerticalAlignment = VerticalAlignment.Center;
         restart.Click += (_, _) => RestartElevatedRequested?.Invoke(this, EventArgs.Empty);
@@ -256,10 +259,19 @@ internal sealed class MainWindow : Window
     public void SetHardwareSummary(HardwareInventory inventory) =>
         _hardwareSummary = DescribeHardware(inventory);
 
-    public void SetElevationState(bool isElevated, bool sensorsMissing)
+    public void SetSensorAccess(SensorAccessState access, string? helperVersion)
     {
-        _elevationBanner.Visibility = !isElevated && sensorsMissing ? Visibility.Visible : Visibility.Collapsed;
-        _settings.SetElevationState(isElevated, sensorsMissing);
+        // Only the missing administrator rights are something the user can fix from here;
+        // a missing helper driver needs a separate installation, explained in the settings.
+        _elevationBanner.Visibility = access == SensorAccessState.NeedsAdministrator
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        _elevationBannerText.Text =
+            "Die Leistungssensoren der CPU brauchen Administratorrechte. Solange wird die " +
+            "CPU-Leistung aus der Auslastung geschätzt.";
+
+        _settings.SetSensorAccess(access, helperVersion);
     }
 
     public void UpdateLive(PowerSnapshot snapshot, IReadOnlyList<double> liveValues)
