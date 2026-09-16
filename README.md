@@ -87,7 +87,7 @@ Grafikkarte, Laufwerke, Arbeitsspeicher, Akku – braucht ohnehin keinen Treiber
 ## Bauen und starten
 
 ```powershell
-git clone https://github.com/bachusmaximus/powerplugin.git
+git clone https://github.com/mxachterberg/powerplugin.git
 cd powerplugin
 
 dotnet build -c Release
