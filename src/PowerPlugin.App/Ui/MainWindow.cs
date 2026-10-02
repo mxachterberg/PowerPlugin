@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Automation;
+using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Media;
 using PowerPlugin.Core.Configuration;
@@ -439,8 +440,16 @@ internal sealed class MainWindow : Window
     /// </summary>
     private sealed class ToggleNavButton : Button
     {
-        private readonly SolidColorBrush _foreground = new(Theme.TextMuted);
-        private readonly SolidColorBrush _underline = new(Colors.Transparent);
+        /// <summary>
+        /// Brush of the accent rule under the entry. A dependency property the template binds to,
+        /// rather than a brush placed into the template: sealing a template freezes every brush in
+        /// it, and recolouring a frozen brush throws.
+        /// </summary>
+        private static readonly DependencyProperty UnderlineProperty = DependencyProperty.Register(
+            nameof(Underline), typeof(Brush), typeof(ToggleNavButton),
+            new FrameworkPropertyMetadata(System.Windows.Media.Brushes.Transparent));
+
+        private static readonly ControlTemplate SharedTemplate = BuildTemplate();
 
         public ToggleNavButton(string caption)
         {
@@ -449,22 +458,29 @@ internal sealed class MainWindow : Window
             FontSize = 12;
             Padding = new Thickness(22, 11, 22, 12);
             Background = System.Windows.Media.Brushes.Transparent;
-            Foreground = _foreground;
+            Foreground = Theme.TextMutedBrush;
             BorderBrush = Theme.BorderBrush;
             BorderThickness = new Thickness(0, 0, 1, 0);
             Cursor = System.Windows.Input.Cursors.Hand;
-            Template = BuildTemplate(_underline);
+            Template = SharedTemplate;
 
             AutomationProperties.SetName(this, caption);
         }
 
-        public void SetActive(bool active)
+        private Brush Underline
         {
-            _foreground.Color = active ? Theme.Text : Theme.TextMuted;
-            _underline.Color = active ? Theme.Accent : Colors.Transparent;
+            get => (Brush)GetValue(UnderlineProperty);
+            set => SetValue(UnderlineProperty, value);
         }
 
-        private static ControlTemplate BuildTemplate(Brush underline)
+        // Whole frozen brushes are swapped in; nothing is ever recoloured in place.
+        public void SetActive(bool active)
+        {
+            Foreground = active ? Theme.TextBrush : Theme.TextMutedBrush;
+            Underline = active ? Theme.AccentBrush : System.Windows.Media.Brushes.Transparent;
+        }
+
+        private static ControlTemplate BuildTemplate()
         {
             var root = new FrameworkElementFactory(typeof(Grid), "Root");
 
@@ -474,7 +490,7 @@ internal sealed class MainWindow : Window
             border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(BorderThicknessProperty));
             border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(PaddingProperty));
 
-            var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            var presenter = new FrameworkElementFactory(typeof(ContentPresenter), "Presenter");
             presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
             presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
             border.AppendChild(presenter);
@@ -482,15 +498,17 @@ internal sealed class MainWindow : Window
 
             // The accent rule of the active entry, flush with the bottom edge.
             var rule = new FrameworkElementFactory(typeof(Border));
-            rule.SetValue(Border.BackgroundProperty, underline);
+            rule.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(UnderlineProperty));
             rule.SetValue(HeightProperty, 2.0);
             rule.SetValue(VerticalAlignmentProperty, VerticalAlignment.Bottom);
             root.AppendChild(rule);
 
             var template = new ControlTemplate(typeof(Button)) { VisualTree = root };
 
+            // Targets the presenter: the button's own Foreground is a local value and would
+            // win over a trigger aimed at the button itself.
             var hover = new Trigger { Property = IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(ForegroundProperty, Theme.AccentBrush));
+            hover.Setters.Add(new Setter(TextElement.ForegroundProperty, Theme.AccentBrush, "Presenter"));
             template.Triggers.Add(hover);
 
             template.Seal();
