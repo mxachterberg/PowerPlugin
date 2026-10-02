@@ -5,7 +5,13 @@ using System.Windows.Media;
 namespace PowerPlugin.App.Ui;
 
 /// <summary>
-/// One statistics tile: a caption, a large value, a secondary line and an optional footnote.
+/// One key figure, built like a cell of the website's meta bar: a capitalised monospace label
+/// above a monospace value, with the supporting lines in the body colour underneath.
+/// <para>
+/// The accent marks the cell rather than colouring the number - a square in front of the label,
+/// the way the section headings do it. Nine such cards all shouting in their own colour would
+/// undo the restraint the palette is built on.
+/// </para>
 /// </summary>
 internal sealed class StatCard : Border
 {
@@ -15,43 +21,35 @@ internal sealed class StatCard : Border
 
     public StatCard(string caption, Color accent)
     {
-        Background = Theme.SurfaceBrush;
+        Background = Theme.PanelBrush;
         BorderBrush = Theme.BorderBrush;
         BorderThickness = new Thickness(1);
-        CornerRadius = new CornerRadius(10);
-        Padding = new Thickness(16, 14, 16, 14);
+        Padding = new Thickness(18, 16, 18, 16);
 
         var accentBrush = new SolidColorBrush(accent);
         accentBrush.Freeze();
 
-        _value = new TextBlock
-        {
-            FontFamily = Theme.DisplayFont,
-            FontSize = 26,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = accentBrush,
-            Margin = new Thickness(0, 4, 0, 0),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
+        _value = Theme.Value(string.Empty, 25);
+        _value.Margin = new Thickness(0, 10, 0, 0);
 
-        _secondary = Theme.Body(string.Empty);
-        _secondary.Margin = new Thickness(0, 2, 0, 0);
+        _secondary = Theme.Body(string.Empty, 12.5);
+        _secondary.Margin = new Thickness(0, 7, 0, 0);
+        _secondary.TextWrapping = TextWrapping.Wrap;
 
-        _footnote = Theme.Muted(string.Empty, 10.5);
-        _footnote.Margin = new Thickness(0, 6, 0, 0);
+        _footnote = Theme.Muted(string.Empty, 11);
+        _footnote.Margin = new Thickness(0, 7, 0, 0);
         _footnote.TextWrapping = TextWrapping.Wrap;
 
         var header = new StackPanel { Orientation = Orientation.Horizontal };
         header.Children.Add(new Border
         {
-            Width = 8,
-            Height = 8,
-            CornerRadius = new CornerRadius(4),
+            Width = 7,
+            Height = 7,
             Background = accentBrush,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0),
+            Margin = new Thickness(0, 0, 10, 0),
         });
-        header.Children.Add(Theme.Muted(caption.ToUpperInvariant(), 10.5));
+        header.Children.Add(Theme.Label(caption, 10.5));
 
         var stack = new StackPanel();
         stack.Children.Add(header);

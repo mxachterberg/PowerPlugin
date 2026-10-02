@@ -34,7 +34,7 @@ internal sealed class HistoryPage : Grid
         chartGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         chartGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        chartGrid.Children.Add(Theme.Title("Verbrauch der letzten 30 Tage"));
+        chartGrid.Children.Add(Theme.SectionHead("Verbrauch der letzten 30 Tage"));
 
         _totals = Theme.Muted(string.Empty);
         _totals.Margin = new Thickness(0, 2, 0, 10);
@@ -85,7 +85,7 @@ internal sealed class HistoryPage : Grid
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var header = new StackPanel();
-        header.Children.Add(Theme.Title(title));
+        header.Children.Add(Theme.SectionHead(title));
 
         TextBlock caption = Theme.Muted(subtitle);
         caption.Margin = new Thickness(0, 2, 0, 8);
@@ -209,7 +209,7 @@ internal sealed class HistoryPage : Grid
 
         var track = new Border
         {
-            Background = Theme.SurfaceRaisedBrush,
+            Background = Theme.BorderSoftBrush,
             CornerRadius = new CornerRadius(2),
             Height = 4,
             Margin = new Thickness(0, 5, 0, 4),

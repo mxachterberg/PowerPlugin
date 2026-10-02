@@ -181,6 +181,35 @@ Fälle werden erkannt und benannt.
 Das Einrichten der geplanten Aufgabe erfordert einmalig eine Bestätigung der Benutzerkontensteuerung.
 Wird sie abgelehnt, bleibt der bisherige Autostart bestehen, statt dass gar keiner übrig bleibt.
 
+## Gestaltung
+
+Die Oberfläche folgt dem Stylesheet von achterberg.dev, damit PowerPlugin neben Website und
+Budgetmaxxer als dieselbe Familie erkennbar ist. Drei Dinge tragen das:
+
+* **Palette** — nahezu monochrom: Grund `#0b0b0d`, Flächen `#101013`, haarfeine Rahmen `#242427`,
+  dazu ein einziger Akzent in Orange `#f97316`, sparsam als Markierung eingesetzt.
+* **Form** — nichts ist abgerundet. Das Stylesheet enthält in 1168 Zeilen genau einen
+  `border-radius`, und der gehört einem Statuspunkt. Karten, Knöpfe, Eingabefelder und das
+  Taskleistensymbol sind scharfkantig, Rahmen durchgehend 1 px.
+* **Schrift** — Bedienelemente, Beschriftungen und Messwerte in einer Festbreitenschrift in
+  Großbuchstaben, Fließtext in der Proportionalschrift.
+
+Dazu das 84-Pixel-Raster als Fensterhintergrund, die Abschnittsüberschrift aus Akzentquadrat,
+Beschriftung und auslaufender Linie, und die Eckmarken an den beiden großen Karten der Übersicht.
+
+Die Schriften sind als Liste mit Rückfall angegeben: `Inter` und `JetBrains Mono` werden genutzt,
+wenn sie installiert sind, sonst greifen `Segoe UI Variable` und `Cascadia Mono`, die Windows 11
+mitbringt. Zwei bewusste Abweichungen vom Vorbild: Die Sperrung der Beschriftungen entfällt — WPF
+kennt keine Laufweite, und der übliche Trick mit schmalen Leerzeichen scheitert in einer
+Festbreitenschrift, in der auch das Leerzeichen volle Breite hat. Und das Taskleistensymbol bleibt
+bei der Proportionalschrift: Bei 16 Pixeln Kantenlänge müssen drei Ziffern lesbar bleiben.
+
+Für die Komponenten-Aufschlüsselung brauchte es mehr Farben, als das Stylesheet kennt. Akzent und
+Grün stammen beide aus derselben offenen Palette, die übrigen Farbtöne sind daher dort entnommen
+und in der Sättigung angeglichen.
+
+Alles davon steht in `Ui/Theme.cs`.
+
 ## Die Statistik
 
 | Kennzahl | Bedeutung |
