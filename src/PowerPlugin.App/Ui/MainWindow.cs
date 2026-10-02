@@ -259,6 +259,8 @@ internal sealed class MainWindow : Window
     public void SetHardwareSummary(HardwareInventory inventory) =>
         _hardwareSummary = DescribeHardware(inventory);
 
+    public void SetAutostartStatus(AutostartFacts facts) => _settings.SetAutostartStatus(facts);
+
     public void SetSensorAccess(SensorAccessState access, string? helperVersion)
     {
         // Only the missing administrator rights are something the user can fix from here;

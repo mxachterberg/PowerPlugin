@@ -155,6 +155,32 @@ Die Farbe des Symbols folgt dem angezeigten Wert: grün bis 80 W, gelb bis 200 W
 Beide Grenzen sind einstellbar, ebenso ob das Symbol Watt, den heutigen Verbrauch in kWh oder
 die heutigen Kosten anzeigt – bei kWh und Kosten wirken Messintervall und Mittelung nicht.
 
+### Autostart
+
+Unter *Einstellungen → Verhalten* stehen zwei Schalter:
+
+| Schalter | Mechanismus | Rechte |
+| --- | --- | --- |
+| **Mit Windows starten** | Eintrag unter `HKCU\…\CurrentVersion\Run` | ohne erhöhte Rechte |
+| **…dabei mit Administratorrechten** | geplante Aufgabe beim Anmelden | erhöht, ohne Rückfrage beim Start |
+
+Der zweite Schalter ist nicht bloß Bequemlichkeit, sondern der einzige Weg, Autostart und
+CPU-Sensoren zu kombinieren: **Windows startet aus dem Run-Schlüssel grundsätzlich keine Programme,
+die erhöhte Rechte verlangen.** Der Explorer arbeitet diese Einträge unerhöht ab und überspringt
+betroffene stillschweigend. Wer also der `PowerPlugin.exe` unter *Eigenschaften → Kompatibilität*
+den Haken „als Administrator ausführen" gibt, schaltet damit unbemerkt den Autostart ab. Die
+geplante Aufgabe hat dieses Problem nicht — sie startet das Programm selbst erhöht. Beim Umschalten
+entfernt PowerPlugin den Kompatibilitätshaken, weil er dann überflüssig ist und nur weiter stören
+würde.
+
+Unter den Schaltern steht, was tatsächlich passiert — nicht, was eingestellt wurde. Denn ein
+vorhandener Run-Eintrag heißt noch nicht, dass er auch ausgeführt wird: Windows kann ihn im
+Task-Manager unter *Autostart-Apps* abgeschaltet haben, ohne den Eintrag selbst anzurühren. Beide
+Fälle werden erkannt und benannt.
+
+Das Einrichten der geplanten Aufgabe erfordert einmalig eine Bestätigung der Benutzerkontensteuerung.
+Wird sie abgelehnt, bleibt der bisherige Autostart bestehen, statt dass gar keiner übrig bleibt.
+
 ## Die Statistik
 
 | Kennzahl | Bedeutung |
