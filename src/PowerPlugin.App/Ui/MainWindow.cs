@@ -35,6 +35,8 @@ internal sealed class MainWindow : Window
 
     private readonly SolidColorBrush _currentWattsBrush = new(Theme.Text);
 
+    private SensorAccessState _cpuSensorAccess = SensorAccessState.Unavailable;
+
     private AppSettings _appSettings;
     private string _hardwareSummary = "Hardware wird erkannt …";
 
@@ -281,6 +283,8 @@ internal sealed class MainWindow : Window
 
     public void SetSensorAccess(SensorAccessState access, string? helperVersion)
     {
+        _cpuSensorAccess = access;
+
         // Only the missing administrator rights are something the user can fix from here;
         // a missing helper driver needs a separate installation, explained in the settings.
         _elevationBanner.Visibility = access == SensorAccessState.NeedsAdministrator
@@ -314,6 +318,7 @@ internal sealed class MainWindow : Window
                 MeasurementConfidence.Medium => Theme.Accent,
                 _ => Theme.Warn,
             });
+        _confidenceBadge.ToolTip = DescribeConfidence(snapshot.Confidence, _cpuSensorAccess);
 
         int measured = snapshot.Components.Count(c => c.Source.IsMeasured());
         _sourceBadge.Content = Theme.Badge(
@@ -362,6 +367,40 @@ internal sealed class MainWindow : Window
         Hide();
     }
 
+    /// <summary>
+    /// Why the total is as accurate as it is - in particular why it stays a rough estimate even
+    /// when the program runs as administrator.
+    /// </summary>
+    private static string DescribeConfidence(MeasurementConfidence confidence, SensorAccessState cpu)
+    {
+        if (confidence == MeasurementConfidence.High)
+        {
+            return "Die Gesamtleistung wird direkt gemessen (Akku-Entladung oder Netzteil-Telemetrie); " +
+                   "die Aufschlüsselung ist daran angeglichen.";
+        }
+
+        if (confidence == MeasurementConfidence.Medium)
+        {
+            return "CPU und Grafikkarte werden per Sensor gemessen. Mainboard, Arbeitsspeicher und " +
+                   "Laufwerke kommen aus dem Modell.";
+        }
+
+        string reason = cpu switch
+        {
+            SensorAccessState.NeedsHelperDriver =>
+                "Die CPU wird geschätzt, weil der Hilfstreiber PawnIO nicht installiert ist. " +
+                "Administratorrechte allein reichen dafür nicht - es braucht beides.",
+            SensorAccessState.NeedsAdministrator =>
+                "Die CPU wird geschätzt, weil das Programm ohne Administratorrechte läuft.",
+            SensorAccessState.Unavailable =>
+                "Die CPU wird geschätzt, weil dieses System ihre Leistungsregister nicht bereitstellt.",
+            _ =>
+                "Die CPU wird gemessen, aber die Grafikkarte hat keinen Leistungssensor.",
+        };
+
+        return reason + " Details unter Einstellungen → Sensorzugriff.";
+    }
+
     private static string DescribeHardware(HardwareInventory inventory)
     {
         var lines = new List<string>
@@ -405,12 +444,19 @@ internal sealed class MainWindow : Window
     }
 
     /// <summary>
-    /// Windows 11 keeps the title bar light unless the window opts into the dark variant.
-    /// The call is best effort - on older builds the attribute is simply ignored.
+    /// Paints the title bar in the colours of the window instead of the system grey.
+    /// <para>
+    /// Windows 11 (build 22000 and later) accepts explicit caption, text and border colours.
+    /// Windows 10 rejects those attributes; there the dark title bar variant is the closest it gets,
+    /// so that is requested first and stays in place if the colour calls fail.
+    /// </para>
     /// </summary>
     private void ApplyDarkTitleBar()
     {
         const int DwmwaUseImmersiveDarkMode = 20;
+        const int DwmwaBorderColor = 34;
+        const int DwmwaCaptionColor = 35;
+        const int DwmwaTextColor = 36;
 
         try
         {
@@ -422,6 +468,14 @@ internal sealed class MainWindow : Window
 
             int useDarkMode = 1;
             DwmSetWindowAttribute(handle, DwmwaUseImmersiveDarkMode, ref useDarkMode, sizeof(int));
+
+            int caption = ToColorRef(Theme.Background);
+            int text = ToColorRef(Theme.Text);
+            int border = ToColorRef(Theme.BorderColor);
+
+            DwmSetWindowAttribute(handle, DwmwaCaptionColor, ref caption, sizeof(int));
+            DwmSetWindowAttribute(handle, DwmwaTextColor, ref text, sizeof(int));
+            DwmSetWindowAttribute(handle, DwmwaBorderColor, ref border, sizeof(int));
         }
         catch (DllNotFoundException)
         {
@@ -430,6 +484,9 @@ internal sealed class MainWindow : Window
         {
         }
     }
+
+    /// <summary>COLORREF is 0x00BBGGRR - blue in the high byte, red in the low one.</summary>
+    private static int ToColorRef(Color color) => color.R | (color.G << 8) | (color.B << 16);
 
     [DllImport("dwmapi.dll", PreserveSig = true)]
     private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
