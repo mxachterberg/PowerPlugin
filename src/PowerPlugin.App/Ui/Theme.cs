@@ -354,7 +354,7 @@ internal static class Theme
         border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
 
-        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter), "Presenter");
         presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
         presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
         border.AppendChild(presenter);
@@ -362,7 +362,9 @@ internal static class Theme
         var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
 
         var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-        hover.Setters.Add(new Setter(Control.ForegroundProperty, AccentBrush));
+        // Aimed at the presenter: the button's Foreground is a local value and would beat a
+        // trigger setter on the button itself.
+        hover.Setters.Add(new Setter(System.Windows.Documents.TextElement.ForegroundProperty, AccentBrush, "Presenter"));
         hover.Setters.Add(new Setter(Border.BorderBrushProperty, AccentBrush, "Root"));
         hover.Setters.Add(new Setter(Border.BackgroundProperty, AccentSoftBrush, "Root"));
         template.Triggers.Add(hover);
