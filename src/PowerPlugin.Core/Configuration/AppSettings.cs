@@ -15,6 +15,16 @@ public enum TrayDisplayMode
     TodayCost,
 }
 
+/// <summary>Look of the application icon on the window, the taskbar button and in Alt+Tab.</summary>
+public enum AppIconStyle
+{
+    /// <summary>Dark tile, hairline border, orange bolt - the restrained default.</summary>
+    Subtle,
+
+    /// <summary>Orange tile with a dark bolt - easier to spot on a dark taskbar.</summary>
+    Bold,
+}
+
 /// <summary>How the power value shown in the notification area is derived from the samples.</summary>
 public enum TrayValueMode
 {
@@ -54,6 +64,12 @@ public sealed class AppSettings
 
     /// <summary>Close the window to the tray instead of quitting the program.</summary>
     public bool CloseToTray { get; set; } = true;
+
+    /// <summary>
+    /// Variant of the application icon. Only affects what the program sets at runtime; the icon
+    /// of the executable itself is compiled in and always the default.
+    /// </summary>
+    public AppIconStyle AppIcon { get; set; } = AppIconStyle.Subtle;
 
     public TrayDisplayMode TrayDisplay { get; set; } = TrayDisplayMode.TotalWatts;
 
@@ -119,6 +135,7 @@ public sealed class AppSettings
         StartWithWindowsElevated = StartWithWindowsElevated,
         StartMinimized = StartMinimized,
         CloseToTray = CloseToTray,
+        AppIcon = AppIcon,
         TrayDisplay = TrayDisplay,
         TrayGreenThresholdWatts = TrayGreenThresholdWatts,
         TrayAmberThresholdWatts = TrayAmberThresholdWatts,

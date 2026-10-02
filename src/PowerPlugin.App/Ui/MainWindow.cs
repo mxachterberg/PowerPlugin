@@ -48,7 +48,7 @@ internal sealed class MainWindow : Window
         MinHeight = 620;
         Background = Theme.CreateGridBrush();
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Icon = AppIcon.LoadImageSource();
+        Icon = AppIcon.LoadImageSource(settings.AppIcon);
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
 
         _overview = new OverviewPage(settings);
@@ -266,6 +266,7 @@ internal sealed class MainWindow : Window
 
     public void ApplySettings(AppSettings settings)
     {
+        Icon = AppIcon.LoadImageSource(settings.AppIcon);
         _appSettings = settings;
         _overview.ApplySettings(settings);
         _history.ApplySettings(settings);

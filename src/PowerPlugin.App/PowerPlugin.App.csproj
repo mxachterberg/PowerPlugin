@@ -32,6 +32,7 @@
   <ItemGroup>
     <!-- Embedded so the window and the tray fallback can load it without a file on disk. -->
     <EmbeddedResource Include="Assets\PowerPlugin.ico" LogicalName="PowerPlugin.ico" />
+    <EmbeddedResource Include="Assets\PowerPlugin-Bold.ico" LogicalName="PowerPlugin-Bold.ico" />
   </ItemGroup>
 
   <ItemGroup>

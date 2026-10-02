@@ -47,7 +47,7 @@ internal sealed class TrayController : IDisposable
             Text = "PowerPlugin",
             Visible = true,
             ContextMenuStrip = menu,
-            Icon = AppIcon.LoadIcon() ?? SystemIcons.Application,
+            Icon = AppIcon.LoadIcon(settings.AppIcon) ?? SystemIcons.Application,
         };
 
         _notifyIcon.MouseClick += OnMouseClick;
@@ -62,6 +62,12 @@ internal sealed class TrayController : IDisposable
 
     public void ApplySettings(AppSettings settings)
     {
+        // Until the first measurement the tray shows the application icon; follow the setting.
+        if (_currentIcon is null)
+        {
+            _notifyIcon.Icon = AppIcon.LoadIcon(settings.AppIcon) ?? SystemIcons.Application;
+        }
+
         _settings = settings;
 
         // Force a redraw with the new thresholds or display mode.
