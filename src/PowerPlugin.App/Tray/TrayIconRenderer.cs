@@ -30,11 +30,12 @@ internal static class TrayIconRenderer
             graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
             graphics.Clear(Color.Transparent);
 
+            // Square, like everything else in this design - the website contains exactly one
+            // rounded corner in its whole stylesheet, and it belongs to a status dot.
             var bounds = new Rectangle(0, 0, size, size);
-            using (GraphicsPath tile = CreateRoundedRectangle(bounds, Math.Max(3, size / 5)))
             using (var fill = new SolidBrush(background))
             {
-                graphics.FillPath(fill, tile);
+                graphics.FillRectangle(fill, bounds);
             }
 
             DrawFittedText(graphics, text, bounds, Color.White);
@@ -65,7 +66,9 @@ internal static class TrayIconRenderer
 
         using var brush = new SolidBrush(color);
 
-        for (float emSize = bounds.Height * 0.78f; emSize >= 5f; emSize -= 0.5f)
+        // Deliberately not the monospace face of the rest of the interface: at sixteen pixels
+        // across, three digits have to stay readable, and Segoe UI carries small sizes better.
+        for (float emSize = bounds.Height * 0.82f; emSize >= 5f; emSize -= 0.5f)
         {
             using var font = new Font("Segoe UI", emSize, FontStyle.Bold, GraphicsUnit.Pixel);
             SizeF measured = graphics.MeasureString(text, font, int.MaxValue, format);
@@ -84,20 +87,6 @@ internal static class TrayIconRenderer
             graphics.DrawString(text, font, brush, layout, format);
             return;
         }
-    }
-
-    private static GraphicsPath CreateRoundedRectangle(Rectangle bounds, int radius)
-    {
-        int diameter = radius * 2;
-        var path = new GraphicsPath();
-
-        path.AddArc(bounds.X, bounds.Y, diameter, diameter, 180, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Y, diameter, diameter, 270, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
-        path.AddArc(bounds.X, bounds.Bottom - diameter, diameter, diameter, 90, 90);
-        path.CloseFigure();
-
-        return path;
     }
 
     /// <summary>

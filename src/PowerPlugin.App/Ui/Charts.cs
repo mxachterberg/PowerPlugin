@@ -107,7 +107,7 @@ internal sealed class LivePowerChart : FrameworkElement
         text,
         CultureInfo.CurrentCulture,
         FlowDirection.LeftToRight,
-        new Typeface(Theme.UiFont, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
+        new Typeface(Theme.SansFont, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
         size,
         new SolidColorBrush(color),
         pixelsPerDip);

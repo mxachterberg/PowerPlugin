@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using PowerPlugin.Core.Model;
@@ -6,48 +7,128 @@ using PowerPlugin.Core.Model;
 namespace PowerPlugin.App.Ui;
 
 /// <summary>
-/// Central place for colours, fonts and the small building blocks the windows are made of.
-/// The application is built in code rather than XAML, so the visual language lives here.
+/// The visual language, taken from the achterberg.dev stylesheet so PowerPlugin sits in the same
+/// family as the website and Budgetmaxxer.
+/// <para>
+/// Three things carry that identity. The palette is near monochrome - a very dark ground, a
+/// barely lighter panel, hairline borders - with a single orange accent used sparingly as a
+/// marker. Nothing is rounded: the whole stylesheet contains exactly one border radius, and it
+/// belongs to a status dot. And the interface chrome - labels, values, buttons, badges - is set in
+/// a monospace face in capitals, while running text stays in the sans.
+/// </para>
 /// </summary>
 internal static class Theme
 {
-    public static readonly Color Background = Color.FromRgb(0x0F, 0x11, 0x15);
-    public static readonly Color Surface = Color.FromRgb(0x18, 0x1B, 0x22);
-    public static readonly Color SurfaceRaised = Color.FromRgb(0x1F, 0x23, 0x2C);
-    public static readonly Color BorderColor = Color.FromRgb(0x2A, 0x2F, 0x3A);
-    public static readonly Color Text = Color.FromRgb(0xE7, 0xEB, 0xF3);
-    public static readonly Color TextMuted = Color.FromRgb(0x93, 0x9C, 0xB0);
-    public static readonly Color Accent = Color.FromRgb(0x4C, 0x8D, 0xFF);
-    public static readonly Color Good = Color.FromRgb(0x35, 0xC7, 0x8A);
-    public static readonly Color Warn = Color.FromRgb(0xF5, 0xA5, 0x24);
-    public static readonly Color Danger = Color.FromRgb(0xE5, 0x54, 0x4B);
+    // ---- Tokens -------------------------------------------------------------------
+    // Values from the :root block of assets/style.css (dark theme).
 
-    public static readonly Brush BackgroundBrush = Freeze(new SolidColorBrush(Background));
-    public static readonly Brush SurfaceBrush = Freeze(new SolidColorBrush(Surface));
-    public static readonly Brush SurfaceRaisedBrush = Freeze(new SolidColorBrush(SurfaceRaised));
-    public static readonly Brush BorderBrush = Freeze(new SolidColorBrush(BorderColor));
-    public static readonly Brush TextBrush = Freeze(new SolidColorBrush(Text));
-    public static readonly Brush TextMutedBrush = Freeze(new SolidColorBrush(TextMuted));
-    public static readonly Brush AccentBrush = Freeze(new SolidColorBrush(Accent));
-    public static readonly Brush GoodBrush = Freeze(new SolidColorBrush(Good));
-    public static readonly Brush WarnBrush = Freeze(new SolidColorBrush(Warn));
-    public static readonly Brush DangerBrush = Freeze(new SolidColorBrush(Danger));
+    public static readonly Color Background = FromHex("#0b0b0d");
+    public static readonly Color Panel = FromHex("#101013");
+    public static readonly Color BorderColor = FromHex("#242427");
+    public static readonly Color BorderSoft = FromHex("#1b1b1e");
+    public static readonly Color Text = FromHex("#ededec");
+    public static readonly Color TextBody = FromHex("#a2a2a7");
+    public static readonly Color TextMuted = FromHex("#6f6f77");
+    public static readonly Color Accent = FromHex("#f97316");
+    public static readonly Color Good = FromHex("#4ade80");
 
-    public static readonly FontFamily UiFont = new("Segoe UI Variable Text, Segoe UI, Arial");
-    public static readonly FontFamily DisplayFont = new("Segoe UI Variable Display, Segoe UI Semibold, Segoe UI, Arial");
+    /// <summary>Hover and selection wash, <c>--accent-soft</c>.</summary>
+    public static readonly Color AccentSoft = Color.FromArgb(0x10, 0xf9, 0x73, 0x16);
 
-    /// <summary>Colour used for a component category in lists and charts.</summary>
+    /// <summary>
+    /// The stylesheet has no red of its own - amber doubles as its warning colour. The tray icon
+    /// needs a third step above it, so one is taken from the same family the accent and the green
+    /// come from.
+    /// </summary>
+    public static readonly Color Warn = Accent;
+    public static readonly Color Danger = FromHex("#ef4444");
+
+    /// <summary>Grid line of the page background, <c>--grid</c>.</summary>
+    public static readonly Color GridLine = Color.FromArgb(0x08, 0xff, 0xff, 0xff);
+
+    /// <summary>Edge length of the background grid, from <c>background-size: 84px 84px</c>.</summary>
+    public const double GridCell = 84;
+
+    public static readonly Brush BackgroundBrush = Frozen(new SolidColorBrush(Background));
+    public static readonly Brush PanelBrush = Frozen(new SolidColorBrush(Panel));
+    public static readonly Brush BorderBrush = Frozen(new SolidColorBrush(BorderColor));
+    public static readonly Brush BorderSoftBrush = Frozen(new SolidColorBrush(BorderSoft));
+    public static readonly Brush TextBrush = Frozen(new SolidColorBrush(Text));
+    public static readonly Brush TextBodyBrush = Frozen(new SolidColorBrush(TextBody));
+    public static readonly Brush TextMutedBrush = Frozen(new SolidColorBrush(TextMuted));
+    public static readonly Brush AccentBrush = Frozen(new SolidColorBrush(Accent));
+    public static readonly Brush AccentSoftBrush = Frozen(new SolidColorBrush(AccentSoft));
+    public static readonly Brush GoodBrush = Frozen(new SolidColorBrush(Good));
+    public static readonly Brush WarnBrush = Frozen(new SolidColorBrush(Warn));
+    public static readonly Brush DangerBrush = Frozen(new SolidColorBrush(Danger));
+
+    /// <summary>
+    /// Running text. Inter is the website's face; where it is not installed Windows falls back
+    /// through the list, and Segoe UI Variable is close enough in proportion to keep the look.
+    /// </summary>
+    public static readonly FontFamily SansFont =
+        new("Inter, Segoe UI Variable Text, Segoe UI, Arial");
+
+    /// <summary>
+    /// Labels, values, buttons and badges. Cascadia Mono ships with Windows 11 and stands in for
+    /// JetBrains Mono closely enough.
+    /// </summary>
+    public static readonly FontFamily MonoFont =
+        new("JetBrains Mono, Cascadia Mono, Consolas, Courier New");
+
+    // ---- Background ----------------------------------------------------------------
+
+    /// <summary>
+    /// The faint 84 pixel grid of the website, as a tiling brush for the window background.
+    /// </summary>
+    public static Brush CreateGridBrush()
+    {
+        var drawing = new DrawingGroup();
+
+        drawing.Children.Add(new GeometryDrawing(
+            BackgroundBrush,
+            null,
+            new RectangleGeometry(new Rect(0, 0, GridCell, GridCell))));
+
+        var pen = new Pen(Frozen(new SolidColorBrush(GridLine)), 1);
+        var lines = new GeometryGroup();
+        lines.Children.Add(new LineGeometry(new Point(0, 0.5), new Point(GridCell, 0.5)));
+        lines.Children.Add(new LineGeometry(new Point(0.5, 0), new Point(0.5, GridCell)));
+        drawing.Children.Add(new GeometryDrawing(null, pen, lines));
+
+        var brush = new DrawingBrush(drawing)
+        {
+            TileMode = TileMode.Tile,
+            Viewport = new Rect(0, 0, GridCell, GridCell),
+            ViewportUnits = BrushMappingMode.Absolute,
+            Stretch = Stretch.None,
+        };
+
+        return Frozen(brush);
+    }
+
+    // ---- Category colours -----------------------------------------------------------
+
+    /// <summary>
+    /// Colour of a component category in lists and charts.
+    /// <para>
+    /// The stylesheet itself only knows the accent and one green, which is not enough to tell nine
+    /// categories apart. Both of its colours are from the same open palette family, so the
+    /// remaining hues are taken from there too and stay at the same saturation - the breakdown
+    /// gains colour coding without leaving the register of the design.
+    /// </para>
+    /// </summary>
     public static Color ColorFor(ComponentCategory category) => category switch
     {
-        ComponentCategory.Cpu => Color.FromRgb(0x4C, 0x8D, 0xFF),
-        ComponentCategory.Gpu => Color.FromRgb(0xA6, 0x6B, 0xFF),
-        ComponentCategory.Memory => Color.FromRgb(0x23, 0xC7, 0xA0),
-        ComponentCategory.Storage => Color.FromRgb(0xF5, 0xA5, 0x24),
-        ComponentCategory.Mainboard => Color.FromRgb(0x7A, 0x86, 0xA0),
-        ComponentCategory.Cooling => Color.FromRgb(0x4F, 0xC3, 0xF7),
-        ComponentCategory.Display => Color.FromRgb(0xFF, 0x7A, 0xB6),
-        ComponentCategory.PowerSupply => Color.FromRgb(0xE5, 0x54, 0x4B),
-        _ => Color.FromRgb(0x8A, 0x93, 0xA6),
+        ComponentCategory.Cpu => Accent,                 // orange, the leading consumer
+        ComponentCategory.Gpu => FromHex("#a78bfa"),     // violet
+        ComponentCategory.Memory => Good,                // the stylesheet's green
+        ComponentCategory.Storage => FromHex("#fbbf24"), // amber
+        ComponentCategory.Mainboard => FromHex("#7a7a84"),
+        ComponentCategory.Cooling => FromHex("#38bdf8"), // sky
+        ComponentCategory.Display => FromHex("#f472b6"), // pink
+        ComponentCategory.PowerSupply => Danger,
+        _ => TextMuted,
     };
 
     public static string LabelFor(ComponentCategory category) => category switch
@@ -74,98 +155,197 @@ internal static class Theme
         return watts <= amberThreshold ? Warn : Danger;
     }
 
-    // ---- Building blocks ----------------------------------------------------------
+    // ---- Text ------------------------------------------------------------------------
 
     public static TextBlock Title(string text, double size = 15) => new()
     {
         Text = text,
-        FontFamily = DisplayFont,
+        FontFamily = SansFont,
         FontSize = size,
-        FontWeight = FontWeights.SemiBold,
+        FontWeight = FontWeights.Bold,
         Foreground = TextBrush,
         TextTrimming = TextTrimming.CharacterEllipsis,
     };
 
-    public static TextBlock Body(string text, double size = 12.5) => new()
+    public static TextBlock Body(string text, double size = 13.5) => new()
     {
         Text = text,
-        FontFamily = UiFont,
+        FontFamily = SansFont,
         FontSize = size,
-        Foreground = TextBrush,
+        Foreground = TextBodyBrush,
         TextTrimming = TextTrimming.CharacterEllipsis,
     };
 
-    public static TextBlock Muted(string text, double size = 11.5) => new()
+    public static TextBlock Muted(string text, double size = 12) => new()
     {
         Text = text,
-        FontFamily = UiFont,
+        FontFamily = SansFont,
         FontSize = size,
         Foreground = TextMutedBrush,
         TextTrimming = TextTrimming.CharacterEllipsis,
     };
 
-    /// <summary>A card with a subtle border, used for every block on the page.</summary>
-    public static Border Card(UIElement child, Thickness? padding = null) => new()
+    /// <summary>
+    /// A small capitalised label in the monospace face, the website's <c>.meta-label</c>.
+    /// <para>
+    /// The original widens these by about .15em. WPF offers no letter spacing on a text block, and
+    /// the usual trick of padding with thin spaces fails in a monospace face, where every glyph -
+    /// space included - takes a full advance width. The mono capitals carry the effect on their
+    /// own, so the tracking is dropped rather than faked badly.
+    /// </para>
+    /// </summary>
+    public static TextBlock Label(string text, double size = 10.5, Brush? foreground = null) => new()
     {
-        Background = SurfaceBrush,
-        BorderBrush = BorderBrush,
-        BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(10),
-        Padding = padding ?? new Thickness(16),
-        Child = child,
+        Text = text.ToUpperInvariant(),
+        FontFamily = MonoFont,
+        FontSize = size,
+        Foreground = foreground ?? TextMutedBrush,
+        TextTrimming = TextTrimming.CharacterEllipsis,
     };
 
-    /// <summary>A small rounded label, e.g. "Sensor" or "Geschätzt".</summary>
+    /// <summary>A measured value, the website's <c>.meta-value</c>: monospace, in the text colour.</summary>
+    public static TextBlock Value(string text, double size = 14, Brush? foreground = null) => new()
+    {
+        Text = text,
+        FontFamily = MonoFont,
+        FontSize = size,
+        Foreground = foreground ?? TextBrush,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+    };
+
+    /// <summary>
+    /// The section heading of the website: a small accent square, a capitalised label, and a rule
+    /// running out to the right edge.
+    /// </summary>
+    public static UIElement SectionHead(string label)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var square = new Border
+        {
+            Width = 7,
+            Height = 7,
+            Background = AccentBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0),
+        };
+        grid.Children.Add(square);
+
+        TextBlock text = Label(label, 11.5);
+        text.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(text, 1);
+        grid.Children.Add(text);
+
+        var rule = new Border
+        {
+            Height = 1,
+            Background = BorderBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0),
+        };
+        Grid.SetColumn(rule, 2);
+        grid.Children.Add(rule);
+
+        AutomationProperties.SetName(grid, label);
+        return grid;
+    }
+
+    // ---- Surfaces ---------------------------------------------------------------------
+
+    /// <summary>
+    /// A panel with a hairline border and square corners, the website's bordered box.
+    /// </summary>
+    /// <param name="ticks">
+    /// Adds the blueprint corner marks. Off by default on purpose: the stylesheet makes them an
+    /// opt-in class rather than part of every box, and on adjacent cards the marks of neighbours
+    /// end up almost touching.
+    /// </param>
+    public static Border Card(UIElement child, Thickness? padding = null, bool ticks = false)
+    {
+        Border card = ticks ? new TickBorder() : new Border();
+
+        card.Background = PanelBrush;
+        card.BorderBrush = BorderBrush;
+        card.BorderThickness = new Thickness(1);
+        card.Padding = padding ?? new Thickness(22, 20, 22, 20);
+        card.Child = child;
+
+        return card;
+    }
+
+    /// <summary>A card with a heading above its content.</summary>
+    public static Border TitledCard(string heading, UIElement content, Thickness? padding = null, bool ticks = false)
+    {
+        var grid = new Grid();
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        UIElement head = SectionHead(heading);
+        grid.Children.Add(head);
+
+        var host = new ContentControl { Content = content, Margin = new Thickness(0, 18, 0, 0) };
+        Grid.SetRow(host, 1);
+        grid.Children.Add(host);
+
+        return Card(grid, padding, ticks);
+    }
+
+    /// <summary>
+    /// A bordered tag, the website's <c>.tag</c>: monospace capitals, hairline border, no fill.
+    /// The colour tints border and text rather than adding a filled pill.
+    /// </summary>
     public static Border Badge(string text, Color color)
     {
-        var background = new SolidColorBrush(Color.FromArgb(0x2E, color.R, color.G, color.B));
-        background.Freeze();
-
-        var foreground = new SolidColorBrush(color);
-        foreground.Freeze();
+        var foreground = Frozen(new SolidColorBrush(color));
+        var border = Frozen(new SolidColorBrush(Color.FromArgb(0x55, color.R, color.G, color.B)));
 
         return new Border
         {
-            Background = background,
-            CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(6, 1, 6, 2),
+            BorderBrush = border,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(7, 2, 7, 3),
             VerticalAlignment = VerticalAlignment.Center,
             Child = new TextBlock
             {
-                Text = text,
-                FontFamily = UiFont,
-                FontSize = 10.5,
+                Text = text.ToUpperInvariant(),
+                FontFamily = MonoFont,
+                FontSize = 9.5,
                 Foreground = foreground,
-                FontWeight = FontWeights.SemiBold,
             },
         };
     }
 
-    /// <summary>Flat button matching the dark surface style.</summary>
+    // ---- Controls ----------------------------------------------------------------------
+
+    /// <summary>
+    /// The website's button: no fill, a hairline border, monospace capitals. Hovering tints the
+    /// text and border with the accent and washes the surface - the primary variant simply starts
+    /// with the accent border.
+    /// </summary>
     public static Button Button(string caption, bool primary = false)
     {
         var button = new Button
         {
-            Content = caption,
-            FontFamily = UiFont,
-            FontSize = 12.5,
-            Foreground = primary ? Freeze(new SolidColorBrush(Colors.White)) : TextBrush,
-            Background = primary ? AccentBrush : SurfaceRaisedBrush,
+            Content = caption.ToUpperInvariant(),
+            FontFamily = MonoFont,
+            FontSize = 11.5,
+            Foreground = primary ? TextBrush : TextBodyBrush,
+            Background = Brushes.Transparent,
             BorderBrush = primary ? AccentBrush : BorderBrush,
             BorderThickness = new Thickness(1),
-            Padding = new Thickness(14, 7, 14, 8),
+            Padding = new Thickness(17, 10, 17, 11),
             Cursor = System.Windows.Input.Cursors.Hand,
-            MinWidth = 90,
+            MinWidth = 96,
+            Template = BuildButtonTemplate(),
         };
 
-        button.Template = BuildButtonTemplate();
+        AutomationProperties.SetName(button, caption);
         return button;
     }
 
-    /// <summary>
-    /// The default WPF button template paints its own chrome, which clashes with the dark
-    /// surface, so buttons get a minimal template with rounded corners and a hover state.
-    /// </summary>
     private static ControlTemplate BuildButtonTemplate()
     {
         var border = new FrameworkElementFactory(typeof(Border), "Root");
@@ -173,7 +353,6 @@ internal static class Theme
         border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
         border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
         border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
 
         var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
         presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
@@ -183,7 +362,9 @@ internal static class Theme
         var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
 
         var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-        hover.Setters.Add(new Setter(UIElement.OpacityProperty, 0.85, "Root"));
+        hover.Setters.Add(new Setter(Control.ForegroundProperty, AccentBrush));
+        hover.Setters.Add(new Setter(Border.BorderBrushProperty, AccentBrush, "Root"));
+        hover.Setters.Add(new Setter(Border.BackgroundProperty, AccentSoftBrush, "Root"));
         template.Triggers.Add(hover);
 
         var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
@@ -198,31 +379,85 @@ internal static class Theme
     {
         Content = caption,
         IsChecked = isChecked,
-        FontFamily = UiFont,
-        FontSize = 12.5,
-        Foreground = TextBrush,
+        FontFamily = SansFont,
+        FontSize = 13,
+        Foreground = TextBodyBrush,
         VerticalContentAlignment = VerticalAlignment.Center,
         Margin = new Thickness(0, 6, 0, 6),
     };
 
-    public static TextBox TextBox(string text, double width = 110) => new()
+    public static RadioButton Radio(string caption, string groupName) => new()
     {
-        Text = text,
-        Width = width,
-        FontFamily = UiFont,
-        FontSize = 12.5,
-        Foreground = TextBrush,
-        CaretBrush = TextBrush,
-        Background = SurfaceRaisedBrush,
-        BorderBrush = BorderBrush,
-        BorderThickness = new Thickness(1),
-        Padding = new Thickness(8, 5, 8, 5),
-        HorizontalAlignment = HorizontalAlignment.Left,
+        Content = caption,
+        FontFamily = SansFont,
+        FontSize = 13,
+        Foreground = TextBodyBrush,
+        Margin = new Thickness(0, 5, 0, 5),
+        GroupName = groupName,
     };
 
-    private static T Freeze<T>(T freezable) where T : Freezable
+    /// <summary>The website's input: panel ground, hairline border, square, accent border on focus.</summary>
+    public static TextBox TextBox(string text, double width = 110)
+    {
+        var box = new TextBox
+        {
+            Text = text,
+            Width = width,
+            FontFamily = MonoFont,
+            FontSize = 12.5,
+            Foreground = TextBrush,
+            CaretBrush = AccentBrush,
+            Background = PanelBrush,
+            BorderBrush = BorderBrush,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(11, 8, 11, 9),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+
+        box.GotKeyboardFocus += (_, _) => box.BorderBrush = AccentBrush;
+        box.LostKeyboardFocus += (_, _) => box.BorderBrush = BorderBrush;
+        return box;
+    }
+
+    // ---- Helpers -------------------------------------------------------------------------
+
+    private static Color FromHex(string hex) => (Color)ColorConverter.ConvertFromString(hex)!;
+
+    private static T Frozen<T>(T freezable) where T : Freezable
     {
         freezable.Freeze();
         return freezable;
+    }
+}
+
+/// <summary>
+/// A bordered box with the website's blueprint corner ticks: a small accent cross just outside the
+/// top left and bottom right corners. Drawn rather than composed so the marks can sit outside the
+/// border without disturbing the layout.
+/// </summary>
+internal sealed class TickBorder : Border
+{
+    private const double ArmLength = 9;
+    private const double Offset = 4.5;
+
+    protected override void OnRender(DrawingContext context)
+    {
+        base.OnRender(context);
+
+        var pen = new Pen(Theme.AccentBrush, 1);
+        pen.Freeze();
+
+        Draw(context, pen, new Point(-Offset, -Offset));
+        Draw(context, pen, new Point(ActualWidth + Offset, ActualHeight + Offset));
+    }
+
+    private static void Draw(DrawingContext context, Pen pen, Point centre)
+    {
+        double half = ArmLength / 2;
+        double x = Math.Round(centre.X) + 0.5;
+        double y = Math.Round(centre.Y) + 0.5;
+
+        context.DrawLine(pen, new Point(x - half, y), new Point(x + half, y));
+        context.DrawLine(pen, new Point(x, y - half), new Point(x, y + half));
     }
 }

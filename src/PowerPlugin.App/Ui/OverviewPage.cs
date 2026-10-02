@@ -41,11 +41,11 @@ internal sealed class OverviewPage : Grid
 
         // ---- Left: live breakdown -------------------------------------------------
         _componentsCaption = Theme.Muted("Alle Verbraucher über 1 W, absteigend sortiert.");
-        _componentsCaption.Margin = new Thickness(0, 2, 0, 10);
+        _componentsCaption.Margin = new Thickness(0, 12, 0, 12);
         _componentsCaption.TextWrapping = TextWrapping.Wrap;
 
         var componentsStack = new StackPanel();
-        componentsStack.Children.Add(Theme.Title("Aktuelle Leistungsverteilung"));
+        componentsStack.Children.Add(Theme.SectionHead("Aktuelle Leistungsverteilung"));
         componentsStack.Children.Add(_componentsCaption);
 
         var componentsGrid = new Grid();
@@ -63,7 +63,7 @@ internal sealed class OverviewPage : Grid
         SetRow(scroller, 1);
         componentsGrid.Children.Add(scroller);
 
-        Border componentsCard = Theme.Card(componentsGrid);
+        Border componentsCard = Theme.Card(componentsGrid, ticks: true);
         componentsCard.Margin = new Thickness(0, 0, 7, 0);
         SetColumn(componentsCard, 0);
         body.Children.Add(componentsCard);
@@ -77,14 +77,14 @@ internal sealed class OverviewPage : Grid
         var chartGrid = new Grid();
         chartGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         chartGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        chartGrid.Children.Add(Theme.Title("Verlauf der letzten Minuten"));
+        chartGrid.Children.Add(Theme.SectionHead("Verlauf der letzten Minuten"));
 
         _liveChart.Margin = new Thickness(0, 10, 0, 0);
         _liveChart.MinHeight = 140;
         SetRow(_liveChart, 1);
         chartGrid.Children.Add(_liveChart);
 
-        Border chartCard = Theme.Card(chartGrid);
+        Border chartCard = Theme.Card(chartGrid, ticks: true);
         SetRow(chartCard, 0);
         right.Children.Add(chartCard);
 
@@ -92,7 +92,7 @@ internal sealed class OverviewPage : Grid
         _todaySummary.TextWrapping = TextWrapping.Wrap;
         _todaySummary.LineHeight = 20;
         var todayStack = new StackPanel();
-        todayStack.Children.Add(Theme.Title("Heute"));
+        todayStack.Children.Add(Theme.SectionHead("Heute"));
         todayStack.Children.Add(WithTopMargin(_todaySummary, 8));
 
         Border todayCard = Theme.Card(todayStack);
@@ -104,7 +104,7 @@ internal sealed class OverviewPage : Grid
         _systemSummary.TextWrapping = TextWrapping.Wrap;
         _systemSummary.LineHeight = 18;
         var systemStack = new StackPanel();
-        systemStack.Children.Add(Theme.Title("Erfasste Hardware"));
+        systemStack.Children.Add(Theme.SectionHead("Erfasste Hardware"));
         systemStack.Children.Add(WithTopMargin(_systemSummary, 8));
 
         Border systemCard = Theme.Card(systemStack);

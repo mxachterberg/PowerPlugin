@@ -76,19 +76,14 @@ internal sealed class ComponentListView : StackPanel
             RowDefinitions.Add(new RowDefinition());
 
             _name = Theme.Body(string.Empty, 13);
+            _name.Foreground = Theme.TextBrush;
             SetColumn(_name, 0);
             SetRow(_name, 0);
             Children.Add(_name);
 
-            _watts = new TextBlock
-            {
-                FontFamily = Theme.DisplayFont,
-                FontSize = 14,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = Theme.TextBrush,
-                VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Right,
-            };
+            _watts = Theme.Value(string.Empty, 13.5);
+            _watts.VerticalAlignment = VerticalAlignment.Center;
+            _watts.HorizontalAlignment = HorizontalAlignment.Right;
             SetColumn(_watts, 1);
             SetRow(_watts, 0);
             Children.Add(_watts);
@@ -96,18 +91,16 @@ internal sealed class ComponentListView : StackPanel
             _bar = new Border
             {
                 Background = _accent,
-                CornerRadius = new CornerRadius(3),
-                Height = 6,
+                Height = 4,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Width = 0,
             };
 
             _barTrack = new Border
             {
-                Background = Theme.SurfaceRaisedBrush,
-                CornerRadius = new CornerRadius(3),
-                Height = 6,
-                Margin = new Thickness(0, 6, 0, 4),
+                Background = Theme.BorderSoftBrush,
+                Height = 4,
+                Margin = new Thickness(0, 8, 0, 6),
                 Child = _bar,
             };
             SetColumn(_barTrack, 0);
@@ -121,7 +114,7 @@ internal sealed class ComponentListView : StackPanel
             _badgeHost = new Border { Margin = new Thickness(0, 0, 8, 0) };
             footer.Children.Add(_badgeHost);
 
-            _detail = Theme.Muted(string.Empty, 10.5);
+            _detail = Theme.Muted(string.Empty, 11);
             _detail.VerticalAlignment = VerticalAlignment.Center;
             footer.Children.Add(_detail);
 
@@ -129,7 +122,7 @@ internal sealed class ComponentListView : StackPanel
             SetRow(footer, 2);
             Children.Add(footer);
 
-            _share = Theme.Muted(string.Empty, 10.5);
+            _share = Theme.Label(string.Empty, 10);
             _share.HorizontalAlignment = HorizontalAlignment.Right;
             _share.VerticalAlignment = VerticalAlignment.Center;
             SetColumn(_share, 1);
@@ -147,7 +140,7 @@ internal sealed class ComponentListView : StackPanel
             _name.Text = component.Name;
             _watts.Text = Formatting.Watts(component.Watts);
             _detail.Text = component.Detail ?? Theme.LabelFor(component.Category);
-            _share.Text = totalWatts > 0 ? $"{component.Watts / totalWatts * 100:0} % vom Gesamtwert" : string.Empty;
+            _share.Text = totalWatts > 0 ? $"{component.Watts / totalWatts * 100:0} %" : string.Empty;
 
             _badgeHost.Child = Theme.Badge(component.Source.ToDisplayString(), color);
 

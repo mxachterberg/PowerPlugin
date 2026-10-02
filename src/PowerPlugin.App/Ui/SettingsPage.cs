@@ -388,7 +388,7 @@ internal sealed class SettingsPage : ScrollViewer
     private static Border Section(string title, UIElement content)
     {
         var stack = new StackPanel();
-        stack.Children.Add(Theme.Title(title));
+        stack.Children.Add(Theme.SectionHead(title));
 
         var host = new Border { Margin = new Thickness(0, 10, 0, 0), Child = content };
         stack.Children.Add(host);
@@ -431,7 +431,7 @@ internal sealed class SettingsPage : ScrollViewer
     private static RadioButton Radio(string caption, string groupName) => new()
     {
         Content = caption,
-        FontFamily = Theme.UiFont,
+        FontFamily = Theme.SansFont,
         FontSize = 12.5,
         Foreground = Theme.TextBrush,
         Margin = new Thickness(0, 4, 0, 4),

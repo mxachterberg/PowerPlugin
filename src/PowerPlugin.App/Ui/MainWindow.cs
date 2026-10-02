@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Interop;
 using System.Windows.Media;
 using PowerPlugin.Core.Configuration;
@@ -45,7 +46,7 @@ internal sealed class MainWindow : Window
         Height = 720;
         MinWidth = 900;
         MinHeight = 620;
-        Background = Theme.BackgroundBrush;
+        Background = Theme.CreateGridBrush();
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Icon = AppIcon.LoadImageSource();
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
@@ -62,8 +63,8 @@ internal sealed class MainWindow : Window
         _currentWatts = new TextBlock
         {
             Text = "--",
-            FontFamily = Theme.DisplayFont,
-            FontSize = 44,
+            FontFamily = Theme.MonoFont,
+            FontSize = 40,
             FontWeight = FontWeights.Bold,
             Foreground = _currentWattsBrush,
         };
@@ -155,7 +156,8 @@ internal sealed class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        TextBlock brand = Theme.Title("PowerPlugin", 17);
+        TextBlock brand = Theme.Value("POWERPLUGIN", 13);
+        brand.FontWeight = FontWeights.Bold;
         brand.HorizontalAlignment = HorizontalAlignment.Right;
         titleStack.Children.Add(brand);
 
@@ -174,7 +176,7 @@ internal sealed class MainWindow : Window
         var panel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 16, 0, 14),
+            Margin = new Thickness(0, 18, 0, 0),
         };
 
         string[] captions = ["Übersicht", "Verlauf", "Einstellungen"];
@@ -184,13 +186,27 @@ internal sealed class MainWindow : Window
             int index = i;
             var button = new ToggleNavButton(captions[i]);
             button.Click += (_, _) => SelectPage(index);
-            button.Margin = new Thickness(i == 0 ? 0 : 8, 0, 0, 0);
+
+            // The first entry carries a separator on both sides, the rest only on the right.
+            if (i == 0)
+            {
+                button.BorderThickness = new Thickness(1, 0, 1, 0);
+            }
 
             _navButtons.Add(button);
             panel.Children.Add(button);
         }
 
-        return panel;
+        var host = new Grid { Margin = new Thickness(0, 0, 0, 18) };
+        host.Children.Add(new Border
+        {
+            Height = 1,
+            Background = Theme.BorderBrush,
+            VerticalAlignment = VerticalAlignment.Bottom,
+        });
+        host.Children.Add(panel);
+
+        return host;
     }
 
     private Border BuildElevationBanner()
@@ -416,51 +432,64 @@ internal sealed class MainWindow : Window
     [DllImport("dwmapi.dll", PreserveSig = true)]
     private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 
-    /// <summary>Pill shaped navigation button with an active state.</summary>
+    /// <summary>
+    /// A navigation entry in the style of the website's menu: monospace capitals, a hairline
+    /// separator on the left, and a two pixel accent rule under the active one.
+    /// </summary>
     private sealed class ToggleNavButton : Button
     {
-        private readonly SolidColorBrush _background = new(Theme.Surface);
         private readonly SolidColorBrush _foreground = new(Theme.TextMuted);
+        private readonly SolidColorBrush _underline = new(Colors.Transparent);
 
         public ToggleNavButton(string caption)
         {
-            Content = caption;
-            FontFamily = Theme.UiFont;
-            FontSize = 13;
-            Padding = new Thickness(18, 8, 18, 9);
-            Background = _background;
+            Content = caption.ToUpperInvariant();
+            FontFamily = Theme.MonoFont;
+            FontSize = 12;
+            Padding = new Thickness(22, 11, 22, 12);
+            Background = System.Windows.Media.Brushes.Transparent;
             Foreground = _foreground;
             BorderBrush = Theme.BorderBrush;
-            BorderThickness = new Thickness(1);
+            BorderThickness = new Thickness(0, 0, 1, 0);
             Cursor = System.Windows.Input.Cursors.Hand;
-            Template = BuildTemplate();
+            Template = BuildTemplate(_underline);
+
+            AutomationProperties.SetName(this, caption);
         }
 
         public void SetActive(bool active)
         {
-            _background.Color = active ? Theme.Accent : Theme.Surface;
-            _foreground.Color = active ? Colors.White : Theme.TextMuted;
-            FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
+            _foreground.Color = active ? Theme.Text : Theme.TextMuted;
+            _underline.Color = active ? Theme.Accent : Colors.Transparent;
         }
 
-        private static ControlTemplate BuildTemplate()
+        private static ControlTemplate BuildTemplate(Brush underline)
         {
-            var border = new FrameworkElementFactory(typeof(Border), "Root");
+            var root = new FrameworkElementFactory(typeof(Grid), "Root");
+
+            var border = new FrameworkElementFactory(typeof(Border));
             border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
             border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(BorderBrushProperty));
             border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(BorderThicknessProperty));
             border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(PaddingProperty));
-            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(18));
 
             var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
             presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
             presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
             border.AppendChild(presenter);
+            root.AppendChild(border);
 
-            var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
+            // The accent rule of the active entry, flush with the bottom edge.
+            var rule = new FrameworkElementFactory(typeof(Border));
+            rule.SetValue(Border.BackgroundProperty, underline);
+            rule.SetValue(HeightProperty, 2.0);
+            rule.SetValue(VerticalAlignmentProperty, VerticalAlignment.Bottom);
+            root.AppendChild(rule);
+
+            var template = new ControlTemplate(typeof(Button)) { VisualTree = root };
 
             var hover = new Trigger { Property = IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(OpacityProperty, 0.88, "Root"));
+            hover.Setters.Add(new Setter(ForegroundProperty, Theme.AccentBrush));
             template.Triggers.Add(hover);
 
             template.Seal();
