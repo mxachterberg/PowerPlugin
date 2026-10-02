@@ -22,6 +22,9 @@ public static class ScheduledTaskAutostart
 {
     public const string TaskName = "PowerPlugin";
 
+    /// <summary>Why the last create or delete failed, in words for the user; null after success.</summary>
+    public static string? LastError { get; private set; }
+
     /// <summary>True when the logon task is registered.</summary>
     public static bool Exists()
     {
@@ -55,15 +58,18 @@ public static class ScheduledTaskAutostart
 
             if (exitCode != 0)
             {
+                LastError = Explain(exitCode, output);
                 DiagnosticsLog.Write($"Geplante Aufgabe konnte nicht angelegt werden (Code {exitCode}). {output}");
                 return false;
             }
 
+            LastError = null;
             DiagnosticsLog.Write($"Geplante Aufgabe '{TaskName}' angelegt für {executable}.");
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SecurityException)
         {
+            LastError = exception.Message;
             DiagnosticsLog.Write("Geplante Aufgabe anlegen", exception);
             return false;
         }
@@ -85,16 +91,24 @@ public static class ScheduledTaskAutostart
 
         if (exitCode != 0)
         {
+            LastError = Explain(exitCode, output);
             DiagnosticsLog.Write($"Geplante Aufgabe konnte nicht entfernt werden (Code {exitCode}). {output}");
             return false;
         }
 
+        LastError = null;
         DiagnosticsLog.Write($"Geplante Aufgabe '{TaskName}' entfernt.");
         return true;
     }
 
     /// <summary>
-    /// The task definition.
+    /// The task definition, in schema version 1.2 so it registers on every supported Windows.
+    /// <para>
+    /// Only elements of that schema may appear: the task scheduler validates against the declared
+    /// version and rejects the whole definition over a single newer element. An earlier revision
+    /// carried two Windows 8 additions (DisallowStartOnRemoteAppSession,
+    /// UseUnifiedSchedulingEngine) and failed to register for exactly that reason.
+    /// </para>
     /// <para>
     /// Three settings matter beyond the obvious ones and are wrong by default for a program that
     /// is meant to run all day: the execution time limit would terminate it after three days, and
@@ -143,8 +157,6 @@ public static class ScheduledTaskAutostart
                 <Enabled>true</Enabled>
                 <Hidden>false</Hidden>
                 <RunOnlyIfIdle>false</RunOnlyIfIdle>
-                <DisallowStartOnRemoteAppSession>false</DisallowStartOnRemoteAppSession>
-                <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
                 <WakeToRun>false</WakeToRun>
                 <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
                 <Priority>7</Priority>
@@ -160,28 +172,30 @@ public static class ScheduledTaskAutostart
     }
 
     /// <summary>
-    /// Runs schtasks. Creating and deleting a task that runs elevated needs administrator rights;
-    /// when the program is unelevated the call goes through the shell with the runas verb, which
-    /// costs one consent prompt and in exchange cannot capture the output.
+    /// Runs schtasks and returns its exit code and output.
+    /// <para>
+    /// Creating and deleting a task that runs elevated needs administrator rights. When the program
+    /// itself is unelevated, the call has to go through the shell with the runas verb - and a shell
+    /// execute cannot redirect output. So in that case an elevated command prompt runs schtasks and
+    /// writes its output to a temporary file, which is read back afterwards. Without that, a
+    /// rejected task definition would be indistinguishable from a declined consent prompt.
+    /// </para>
     /// </summary>
     private static (int ExitCode, string Output) RunSchtasks(string[] arguments, bool elevateIfNeeded)
     {
         bool needsElevation = elevateIfNeeded && !ElevationHelper.IsElevated;
+        return needsElevation ? RunElevated(arguments) : RunDirect(arguments);
+    }
 
+    private static (int ExitCode, string Output) RunDirect(string[] arguments)
+    {
         var startInfo = new ProcessStartInfo("schtasks.exe")
         {
-            UseShellExecute = needsElevation,
-            CreateNoWindow = !needsElevation,
-            RedirectStandardOutput = !needsElevation,
-            RedirectStandardError = !needsElevation,
-            WindowStyle = ProcessWindowStyle.Hidden,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
-
-        if (needsElevation)
-        {
-            // A verb is only meaningful for a shell execute, and setting one otherwise is rejected.
-            startInfo.Verb = "runas";
-        }
 
         foreach (string argument in arguments)
         {
@@ -196,25 +210,72 @@ public static class ScheduledTaskAutostart
                 return (-1, "schtasks.exe konnte nicht gestartet werden.");
             }
 
-            string output = needsElevation
-                ? string.Empty
-                : process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-
+            string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
             process.WaitForExit();
             return (process.ExitCode, output.Trim());
         }
-        catch (System.ComponentModel.Win32Exception exception)
-        {
-            // ERROR_CANCELLED (1223) means the user declined the consent prompt.
-            DiagnosticsLog.Write("schtasks.exe", exception);
-            return (exception.NativeErrorCode, exception.Message);
-        }
-        catch (InvalidOperationException exception)
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
             DiagnosticsLog.Write("schtasks.exe", exception);
             return (-1, exception.Message);
         }
     }
+
+    private static (int ExitCode, string Output) RunElevated(string[] arguments)
+    {
+        string outputPath = Path.Combine(Path.GetTempPath(), $"powerplugin-schtasks-{Guid.NewGuid():N}.txt");
+
+        // With /s, cmd strips exactly the outer pair of quotes and keeps the inner ones intact.
+        string command = "schtasks.exe " + string.Join(' ', arguments.Select(Quote)) +
+                         $" > {Quote(outputPath)} 2>&1";
+
+        var startInfo = new ProcessStartInfo("cmd.exe", $"/s /c \"{command}\"")
+        {
+            UseShellExecute = true,
+            Verb = "runas",
+            WindowStyle = ProcessWindowStyle.Hidden,
+        };
+
+        try
+        {
+            using Process? process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return (-1, "schtasks.exe konnte nicht gestartet werden.");
+            }
+
+            process.WaitForExit();
+            string output = File.Exists(outputPath) ? File.ReadAllText(outputPath) : string.Empty;
+            return (process.ExitCode, output.Trim());
+        }
+        catch (System.ComponentModel.Win32Exception exception)
+        {
+            // ERROR_CANCELLED (1223) means the user declined the consent prompt.
+            DiagnosticsLog.Write("schtasks.exe (erhöht)", exception);
+            return (exception.NativeErrorCode, exception.Message);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            DiagnosticsLog.Write("schtasks.exe (erhöht)", exception);
+            return (-1, exception.Message);
+        }
+        finally
+        {
+            TryDelete(outputPath);
+        }
+    }
+
+    private static string Quote(string argument) =>
+        argument.Length > 0 && !argument.Any(c => char.IsWhiteSpace(c) || c is '&' or '|' or '<' or '>' or '^' or '(' or ')')
+            ? argument
+            : $"\"{argument}\"";
+
+    private static string Explain(int exitCode, string output) => exitCode switch
+    {
+        1223 => "Die Rückfrage der Benutzerkontensteuerung wurde abgelehnt.",
+        _ when output.Length > 0 => $"Die Aufgabenplanung meldet: {output}",
+        _ => $"Die Aufgabenplanung hat mit Code {exitCode} abgebrochen, ohne Meldung.",
+    };
 
     private static void TryDelete(string path)
     {

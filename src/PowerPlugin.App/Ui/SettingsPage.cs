@@ -10,9 +10,16 @@ namespace PowerPlugin.App.Ui;
 /// <summary>
 /// Lets the user set the electricity price, the sampling rate and the coefficients of the
 /// estimation model. Calibrating against a real wall socket meter happens here.
+/// <para>
+/// The page scrolls, the bar with the save button below it does not - otherwise the button sits
+/// at the very end of a long page and changes are easily left unsaved. The bar also says when the
+/// inputs differ from what is stored.
+/// </para>
 /// </summary>
-internal sealed class SettingsPage : ScrollViewer
+internal sealed class SettingsPage : Grid
 {
+    private static readonly System.Text.Json.JsonSerializerOptions CompareOptions = new();
+
     private readonly TextBox _price;
     private readonly TextBox _currency;
     private readonly TextBox _interval;
@@ -48,14 +55,31 @@ internal sealed class SettingsPage : ScrollViewer
     private readonly Button _elevateButton;
     private readonly TextBlock _helperDriverHint;
 
+    /// <summary>Base the inputs are read onto; differs from the stored state after "reset model".</summary>
     private AppSettings _settings;
+
+    /// <summary>What is actually stored and in effect - the reference for "unsaved changes".</summary>
+    private AppSettings _saved;
+
+    private readonly StackPanel _unsavedIndicator;
 
     public SettingsPage(AppSettings settings)
     {
         _settings = settings.Clone();
+        _saved = settings.Clone();
 
-        VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        _unsavedIndicator = new StackPanel { Orientation = Orientation.Horizontal, Visibility = Visibility.Collapsed };
+        _unsavedIndicator.Children.Add(new Border
+        {
+            Width = 7,
+            Height = 7,
+            Background = Theme.AccentBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 10, 0),
+        });
+        TextBlock unsavedText = Theme.Label("Ungespeicherte Änderungen", 11, Theme.AccentBrush);
+        unsavedText.VerticalAlignment = VerticalAlignment.Center;
+        _unsavedIndicator.Children.Add(unsavedText);
 
         _price = Theme.TextBox(string.Empty, 90);
         _currency = Theme.TextBox(string.Empty, 60);
@@ -111,8 +135,23 @@ internal sealed class SettingsPage : ScrollViewer
         _helperDriverHint.Margin = new Thickness(0, 8, 0, 0);
         _helperDriverHint.Visibility = Visibility.Collapsed;
 
-        Content = BuildContent();
+        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        UIElement content = BuildContent();
+        Children.Add(new ScrollViewer
+        {
+            Content = content,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        });
+
+        UIElement footer = BuildFooter();
+        SetRow(footer, 1);
+        Children.Add(footer);
+
         WireSummaryUpdates();
+        WireUnsavedTracking(content);
         Load(_settings);
     }
 
@@ -177,7 +216,15 @@ internal sealed class SettingsPage : ScrollViewer
         };
     }
 
+    /// <summary>Shows settings that are stored and in effect; they become the new baseline.</summary>
     public void Load(AppSettings settings)
+    {
+        _saved = settings.Clone();
+        Fill(settings);
+    }
+
+    /// <summary>Puts settings into the inputs without treating them as stored.</summary>
+    private void Fill(AppSettings settings)
     {
         _settings = settings.Clone();
 
@@ -211,6 +258,7 @@ internal sealed class SettingsPage : ScrollViewer
         _valueAverage.IsChecked = _settings.TrayValue == TrayValueMode.Average;
 
         UpdateTraySummary();
+        UpdateUnsavedState();
     }
 
     /// <summary>
@@ -372,28 +420,88 @@ internal sealed class SettingsPage : ScrollViewer
         data.Children.Add(dataButtons);
         stack.Children.Add(Section("Daten", data));
 
-        // ---- Save --------------------------------------------------------------------
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+        return stack;
+    }
+
+    /// <summary>The fixed bar under the scrolling page: state on the left, actions on the right.</summary>
+    private UIElement BuildFooter()
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var state = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 16, 0) };
+        _status.Margin = new Thickness(0);
+        _status.VerticalAlignment = VerticalAlignment.Center;
+        state.Children.Add(_status);
+        state.Children.Add(_unsavedIndicator);
+        grid.Children.Add(state);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal };
+
+        Button defaults = Theme.Button("Modell zurücksetzen");
+        defaults.Margin = new Thickness(0, 0, 10, 0);
+        defaults.Click += (_, _) =>
+        {
+            AppSettings reverted = ReadInputs();
+            reverted.Model = new Core.Estimation.PowerModelOptions();
+            Fill(reverted);
+            _status.Text = "Standardwerte des Schätzmodells eingetragen.";
+        };
+        actions.Children.Add(defaults);
 
         Button save = Theme.Button("Einstellungen speichern", primary: true);
         save.Click += (_, _) => Save();
         actions.Children.Add(save);
 
-        Button defaults = Theme.Button("Modell zurücksetzen");
-        defaults.Margin = new Thickness(10, 0, 0, 0);
-        defaults.Click += (_, _) =>
+        Grid.SetColumn(actions, 1);
+        grid.Children.Add(actions);
+
+        return new Border
         {
-            AppSettings reverted = _settings.Clone();
-            reverted.Model = new Core.Estimation.PowerModelOptions();
-            Load(reverted);
-            _status.Text = "Die Standardwerte des Schätzmodells sind eingetragen. Zum Übernehmen speichern.";
+            Background = Theme.BackgroundBrush,
+            BorderBrush = Theme.BorderBrush,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(0, 12, 8, 0),
+            Child = grid,
         };
-        actions.Children.Add(defaults);
+    }
 
-        stack.Children.Add(actions);
-        stack.Children.Add(_status);
+    /// <summary>
+    /// Re-evaluates "unsaved changes" whenever any input changes. Found by walking the page, so a
+    /// field added later is covered without remembering to register it here.
+    /// </summary>
+    private void WireUnsavedTracking(DependencyObject root)
+    {
+        foreach (object child in LogicalTreeHelper.GetChildren(root))
+        {
+            switch (child)
+            {
+                case TextBox box:
+                    box.TextChanged += (_, _) => UpdateUnsavedState();
+                    break;
+                case System.Windows.Controls.Primitives.ToggleButton toggle:
+                    toggle.Checked += (_, _) => UpdateUnsavedState();
+                    toggle.Unchecked += (_, _) => UpdateUnsavedState();
+                    break;
+            }
 
-        return stack;
+            if (child is DependencyObject node)
+            {
+                WireUnsavedTracking(node);
+            }
+        }
+    }
+
+    private void UpdateUnsavedState()
+    {
+        bool unsaved = !string.Equals(
+            System.Text.Json.JsonSerializer.Serialize(ReadInputs(), CompareOptions),
+            System.Text.Json.JsonSerializer.Serialize(_saved, CompareOptions),
+            StringComparison.Ordinal);
+
+        _unsavedIndicator.Visibility = unsaved ? Visibility.Visible : Visibility.Collapsed;
+        _status.Visibility = unsaved ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private static TextBlock Caption(string text)

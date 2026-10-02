@@ -280,9 +280,11 @@ internal sealed class AppController : IDisposable
         {
             MessageBox.Show(
                 mode == AutostartMode.Elevated
-                    ? "Die geplante Aufgabe konnte nicht angelegt werden. Für den Start mit " +
-                      "Administratorrechten muss die Rückfrage der Benutzerkontensteuerung bestätigt werden."
-                    : "Der Autostart konnte nicht geändert werden.",
+                    ? "Die geplante Aufgabe konnte nicht angelegt werden.\n\n" +
+                      (ScheduledTaskAutostart.LastError ?? "Ursache unbekannt.") +
+                      "\n\nDer bisherige Autostart bleibt bestehen. Details stehen in der Protokolldatei im Datenordner."
+                    : "Der Autostart konnte nicht geändert werden.\n\n" +
+                      (ScheduledTaskAutostart.LastError ?? "Details stehen in der Protokolldatei im Datenordner."),
                 "PowerPlugin",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
