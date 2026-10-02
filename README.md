@@ -119,6 +119,32 @@ dotnet publish src/PowerPlugin.App -c Release -r win-arm64 -o publish
 Danach `publish\PowerPlugin.exe` starten. Beim ersten Start öffnet sich das Statistikfenster,
 anschließend läuft das Programm still im Infobereich weiter.
 
+### Installieren nach C:\Program Files (empfohlen)
+
+Für den Dauerbetrieb gehört PowerPlugin nach `C:\Program Files\PowerPlugin`. Der Grund ist die
+Sicherheit: Mit „Immer mit Administratorrechten starten" startet beim Anmelden eine geplante
+Aufgabe die `PowerPlugin.exe` ohne Rückfrage mit Administratorrechten. Liegt die exe in einem
+Ordner wie `publish`, den jedes Programm des Benutzerkontos verändern darf, könnte ein solches
+Programm sie austauschen und bekäme beim nächsten Anmelden Administratorrechte. `Program Files`
+ist nur mit Administratorrechten beschreibbar.
+
+In einem Terminal **mit Administratorrechten**, im Ordner des Repositorys:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Das Skript baut die Anwendung, beendet ein laufendes PowerPlugin, ersetzt den Inhalt von
+`C:\Program Files\PowerPlugin`, entfernt eine alte Kopie unter `publish`, legt einen
+Startmenü-Eintrag an und startet das Programm. Für Updates genügt `git pull` und erneut
+`install.ps1`. Einstellungen und Verlauf liegen in `%LOCALAPPDATA%\PowerPlugin` und bleiben
+erhalten.
+
+Autostart, geplante Aufgabe und der Haken „als Administrator ausführen" hängen alle am Pfad der
+exe. PowerPlugin zieht sie beim ersten Start aus dem neuen Ordner selbst um – aber nur, wenn die
+alte exe nicht mehr existiert. Ein Testbuild, der von woanders gestartet wird, übernimmt den
+Autostart also nicht. Ein Taskleisten-Pin auf die alte Kopie muss von Hand neu angeheftet werden.
+
 > Die Projekte lassen sich auch auf Linux- oder macOS-Buildagenten kompilieren und testen –
 > `EnableWindowsTargeting` ist gesetzt und die Kernlogik ist plattformunabhängig. Ausführen
 > lässt sich die Anwendung selbst nur unter Windows.

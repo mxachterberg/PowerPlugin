@@ -64,6 +64,7 @@ public static class ScheduledTaskAutostart
             }
 
             LastError = null;
+            WindowsStartup.RecordTaskExecutable(executable);
             DiagnosticsLog.Write($"Geplante Aufgabe '{TaskName}' angelegt für {executable}.");
             return true;
         }
@@ -97,6 +98,7 @@ public static class ScheduledTaskAutostart
         }
 
         LastError = null;
+        WindowsStartup.RecordTaskExecutable(null);
         DiagnosticsLog.Write($"Geplante Aufgabe '{TaskName}' entfernt.");
         return true;
     }

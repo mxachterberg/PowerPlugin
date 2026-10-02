@@ -101,6 +101,43 @@ public static class AutostartStatus
         return facts.HasScheduledTask && !facts.RunAsAdminFlagSet;
     }
 
+    /// <summary>
+    /// The executable of a command line as the Run key stores it, quoted or not; null for an
+    /// empty value.
+    /// </summary>
+    public static string? ExecutableOf(string? commandLine)
+    {
+        string trimmed = commandLine?.Trim() ?? string.Empty;
+
+        if (trimmed.StartsWith('"'))
+        {
+            int closing = trimmed.IndexOf('"', 1);
+            trimmed = closing < 0 ? trimmed[1..] : trimmed[1..closing];
+        }
+
+        return trimmed.Length == 0 ? null : trimmed;
+    }
+
+    /// <summary>
+    /// Whether an autostart entry that starts <paramref name="target"/> has to be pointed at the
+    /// running copy. Only when the program has moved - the target is gone - and not merely
+    /// because another copy runs: a test build started from some other folder must not take the
+    /// autostart over. An unknown target, as with logon tasks registered by versions that did not
+    /// record it, is adopted once.
+    /// </summary>
+    public static bool ShouldFollowMove(string? target, string current, Func<string, bool> fileExists)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(fileExists);
+
+        if (target is null)
+        {
+            return true;
+        }
+
+        return !string.Equals(target, current, StringComparison.OrdinalIgnoreCase) && !fileExists(target);
+    }
+
     public static AutostartMode ResolveMode(AutostartFacts facts)
     {
         ArgumentNullException.ThrowIfNull(facts);

@@ -278,11 +278,18 @@ internal sealed class AppController : IDisposable
     /// <summary>
     /// Takes both switches from the system rather than from the settings file - they can be
     /// changed outside the program, through the compatibility tab of the executable or the
-    /// autostart list of the task manager - and repairs two states that can be left behind.
+    /// autostart list of the task manager - and repairs what can be left behind: a moved program,
+    /// a lost compatibility flag, a Run entry that the flag blocks.
     /// </summary>
     private void SyncAutostartState()
     {
         AutostartFacts facts = WindowsStartup.GetFacts();
+
+        // Moved, say into C:\Program Files: flag, Run entry and task still name the old path.
+        if (WindowsStartup.FollowMove(facts))
+        {
+            facts = WindowsStartup.GetFacts();
+        }
 
         // An earlier version removed the compatibility flag when it created the elevated task,
         // which silently stopped manual starts from asking for administrator rights.
