@@ -151,7 +151,7 @@ bis eine neue Messung vorliegt).
 Ohne Glättung springt der Wert übrigens deutlich: Der Momentanwert eines PCs ändert sich zwischen
 zwei Messungen um zweistellige Wattbeträge. Deshalb ist der Durchschnitt die Voreinstellung.
 
-Die Farbe des Symbols folgt dem angezeigten Wert: grün bis 80 W, gelb bis 200 W, darüber rot.
+Die Farbe des Symbols folgt dem angezeigten Wert: grün bis 80 W, orange bis 200 W, darüber rot.
 Beide Grenzen sind einstellbar, ebenso ob das Symbol Watt, den heutigen Verbrauch in kWh oder
 die heutigen Kosten anzeigt – bei kWh und Kosten wirken Messintervall und Mittelung nicht.
 
@@ -193,6 +193,10 @@ Budgetmaxxer als dieselbe Familie erkennbar ist. Drei Dinge tragen das:
   Taskleistensymbol sind scharfkantig, Rahmen durchgehend 1 px.
 * **Schrift** — Bedienelemente, Beschriftungen und Messwerte in einer Festbreitenschrift in
   Großbuchstaben, Fließtext in der Proportionalschrift.
+
+Das App-Icon ist entsprechend eine quadratische Kachel im Akzent-Orange mit dunklem Blitz.
+Eine dunkle Kachel mit orangem Blitz wäre zurückhaltender gewesen, verschwindet aber auf der
+dunklen Taskleiste von Windows 11 bei 16 Pixeln fast völlig.
 
 Dazu das 84-Pixel-Raster als Fensterhintergrund, die Abschnittsüberschrift aus Akzentquadrat,
 Beschriftung und auslaufender Linie, und die Eckmarken an den beiden großen Karten der Übersicht.
