@@ -31,6 +31,8 @@ internal sealed class SettingsPage : ScrollViewer
     private readonly TextBlock _autostartStatus;
     private readonly CheckBox _closeToTray;
     private readonly CheckBox _startMinimized;
+    private readonly RadioButton _iconSubtle;
+    private readonly RadioButton _iconBold;
     private readonly CheckBox _includeLosses;
 
     private readonly RadioButton _trayWatts;
@@ -79,6 +81,9 @@ internal sealed class SettingsPage : ScrollViewer
         _autostartStatus.Margin = new Thickness(0, 6, 0, 4);
         _closeToTray = Theme.CheckBox("Fenster schließen minimiert in den Infobereich", true);
         _startMinimized = Theme.CheckBox("Beim Start nur das Taskleistensymbol anzeigen", true);
+
+        _iconSubtle = Theme.Radio("Dunkle Kachel, oranger Blitz (Standard)", "AppIcon");
+        _iconBold = Theme.Radio("Orange Kachel, dunkler Blitz - auf dunkler Taskleiste besser sichtbar", "AppIcon");
         _includeLosses = Theme.CheckBox("Netzteilverluste einrechnen (Wert entspricht dann der Steckdose)", true);
 
         _trayWatts = Radio("Aktuelle Leistung in Watt", "TrayDisplay");
@@ -194,6 +199,8 @@ internal sealed class SettingsPage : ScrollViewer
         _autostartElevated.IsEnabled = _settings.StartWithWindows;
         _closeToTray.IsChecked = _settings.CloseToTray;
         _startMinimized.IsChecked = _settings.StartMinimized;
+        _iconSubtle.IsChecked = _settings.AppIcon == AppIconStyle.Subtle;
+        _iconBold.IsChecked = _settings.AppIcon == AppIconStyle.Bold;
         _includeLosses.IsChecked = _settings.Model.IncludeConversionLosses;
 
         _trayWatts.IsChecked = _settings.TrayDisplay == TrayDisplayMode.TotalWatts;
@@ -296,6 +303,17 @@ internal sealed class SettingsPage : ScrollViewer
 
         behaviour.Children.Add(_closeToTray);
         behaviour.Children.Add(_startMinimized);
+
+        behaviour.Children.Add(Caption("App-Icon"));
+        behaviour.Children.Add(_iconSubtle);
+        behaviour.Children.Add(_iconBold);
+
+        TextBlock iconHint = Theme.Muted(
+            "Gilt für Fenster, Taskleisten-Schaltfläche und Alt+Tab. Das Icon der PowerPlugin.exe im " +
+            "Explorer ist fest in die Datei einkompiliert und zeigt immer die Standardvariante.", 11);
+        iconHint.TextWrapping = TextWrapping.Wrap;
+        iconHint.Margin = new Thickness(0, 2, 0, 10);
+        behaviour.Children.Add(iconHint);
 
         stack.Children.Add(Section("Verhalten", behaviour));
 
@@ -477,6 +495,7 @@ internal sealed class SettingsPage : ScrollViewer
         updated.StartWithWindowsElevated = _autostartElevated.IsChecked == true;
         updated.CloseToTray = _closeToTray.IsChecked == true;
         updated.StartMinimized = _startMinimized.IsChecked == true;
+        updated.AppIcon = _iconBold.IsChecked == true ? AppIconStyle.Bold : AppIconStyle.Subtle;
 
         updated.TrayDisplay = _trayEnergy.IsChecked == true
             ? TrayDisplayMode.TodayKilowattHours

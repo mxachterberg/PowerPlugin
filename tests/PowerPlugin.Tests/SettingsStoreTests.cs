@@ -144,6 +144,22 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void TheSubtleIconIsTheDefault() =>
+        Assert.Equal(AppIconStyle.Subtle, new SettingsStore(_file).Load().AppIcon);
+
+    [Fact]
+    public void TheIconChoiceSurvivesARoundTripAndCloning()
+    {
+        var store = new SettingsStore(_file);
+        store.Save(new AppSettings { AppIcon = AppIconStyle.Bold });
+
+        AppSettings read = store.Load();
+
+        Assert.Equal(AppIconStyle.Bold, read.AppIcon);
+        Assert.Equal(AppIconStyle.Bold, read.Clone().AppIcon);
+    }
+
+    [Fact]
     public void CloningDoesNotShareTheModel()
     {
         var original = new AppSettings();

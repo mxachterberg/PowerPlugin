@@ -194,9 +194,12 @@ Budgetmaxxer als dieselbe Familie erkennbar ist. Drei Dinge tragen das:
 * **Schrift** — Bedienelemente, Beschriftungen und Messwerte in einer Festbreitenschrift in
   Großbuchstaben, Fließtext in der Proportionalschrift.
 
-Das App-Icon ist entsprechend eine quadratische Kachel im Akzent-Orange mit dunklem Blitz.
-Eine dunkle Kachel mit orangem Blitz wäre zurückhaltender gewesen, verschwindet aber auf der
-dunklen Taskleiste von Windows 11 bei 16 Pixeln fast völlig.
+Das App-Icon gibt es in zwei Varianten, beide quadratisch. Standard ist eine dunkle Kachel mit
+Haarlinie und orangem Blitz, passend zur Zurückhaltung der Oberfläche. Unter *Einstellungen →
+Verhalten* lässt sich auf eine orange Kachel mit dunklem Blitz umstellen, die auf der dunklen
+Taskleiste von Windows 11 bei kleinen Größen deutlich besser auffällt. Die Wahl gilt für Fenster,
+Taskleisten-Schaltfläche und Alt+Tab; das Icon der `PowerPlugin.exe` im Explorer ist fest in die
+Datei einkompiliert und zeigt immer die Standardvariante.
 
 Dazu das 84-Pixel-Raster als Fensterhintergrund, die Abschnittsüberschrift aus Akzentquadrat,
 Beschriftung und auslaufender Linie, und die Eckmarken an den beiden großen Karten der Übersicht.
