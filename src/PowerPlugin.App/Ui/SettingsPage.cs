@@ -27,6 +27,8 @@ internal sealed class SettingsPage : ScrollViewer
     private readonly TextBox _trayAverage;
 
     private readonly CheckBox _autostart;
+    private readonly CheckBox _autostartElevated;
+    private readonly TextBlock _autostartStatus;
     private readonly CheckBox _closeToTray;
     private readonly CheckBox _startMinimized;
     private readonly CheckBox _includeLosses;
@@ -67,6 +69,14 @@ internal sealed class SettingsPage : ScrollViewer
         _trayAverage = Theme.TextBox(string.Empty, 90);
 
         _autostart = Theme.CheckBox("Mit Windows starten", false);
+
+        _autostartElevated = Theme.CheckBox(
+            "Dabei mit Administratorrechten starten (nötig für die CPU-Sensoren)", false);
+        _autostartElevated.Margin = new Thickness(22, 2, 0, 6);
+
+        _autostartStatus = Theme.Muted(string.Empty);
+        _autostartStatus.TextWrapping = TextWrapping.Wrap;
+        _autostartStatus.Margin = new Thickness(0, 6, 0, 4);
         _closeToTray = Theme.CheckBox("Fenster schließen minimiert in den Infobereich", true);
         _startMinimized = Theme.CheckBox("Beim Start nur das Taskleistensymbol anzeigen", true);
         _includeLosses = Theme.CheckBox("Netzteilverluste einrechnen (Wert entspricht dann der Steckdose)", true);
@@ -113,6 +123,22 @@ internal sealed class SettingsPage : ScrollViewer
     /// Explains the state of the CPU sensors. The two causes - missing rights and missing helper
     /// driver - need different answers, and only one of them can be fixed from inside the program.
     /// </summary>
+    /// <summary>
+    /// Shows what the autostart actually does, which is not always what the switches above ask
+    /// for - Windows can veto a Run entry without touching it.
+    /// </summary>
+    public void SetAutostartStatus(AutostartFacts facts)
+    {
+        _autostartStatus.Text = AutostartStatus.Describe(facts);
+
+        _autostartStatus.Foreground = AutostartStatus.ResolveState(facts) switch
+        {
+            AutostartState.BlockedByWindows or AutostartState.BlockedByElevationFlag => Theme.WarnBrush,
+            AutostartState.Conflicting => Theme.WarnBrush,
+            _ => Theme.TextMutedBrush,
+        };
+    }
+
     public void SetSensorAccess(SensorAccessState access, string? helperVersion)
     {
         _elevateButton.Visibility = access == SensorAccessState.NeedsAdministrator
@@ -164,6 +190,8 @@ internal sealed class SettingsPage : ScrollViewer
         _trayAverage.Text = _settings.TrayAverageWindowSeconds.ToString("0.#", CultureInfo.CurrentCulture);
 
         _autostart.IsChecked = _settings.StartWithWindows;
+        _autostartElevated.IsChecked = _settings.StartWithWindowsElevated;
+        _autostartElevated.IsEnabled = _settings.StartWithWindows;
         _closeToTray.IsChecked = _settings.CloseToTray;
         _startMinimized.IsChecked = _settings.StartMinimized;
         _includeLosses.IsChecked = _settings.Model.IncludeConversionLosses;
@@ -204,6 +232,9 @@ internal sealed class SettingsPage : ScrollViewer
         {
             radio.Checked += (_, _) => UpdateTraySummary();
         }
+
+        _autostart.Checked += (_, _) => _autostartElevated.IsEnabled = true;
+        _autostart.Unchecked += (_, _) => _autostartElevated.IsEnabled = false;
     }
 
     private UIElement BuildContent()
@@ -250,6 +281,19 @@ internal sealed class SettingsPage : ScrollViewer
         // ---- Behaviour --------------------------------------------------------------
         var behaviour = new StackPanel();
         behaviour.Children.Add(_autostart);
+        behaviour.Children.Add(_autostartElevated);
+        behaviour.Children.Add(_autostartStatus);
+
+        TextBlock elevatedHint = Theme.Muted(
+            "Der gewöhnliche Autostart läuft über einen Registry-Eintrag und startet das Programm " +
+            "ohne erhöhte Rechte. Windows überspringt solche Einträge jedoch, sobald die " +
+            "Programmdatei als \"als Administrator ausführen\" markiert ist - deshalb legt die " +
+            "zweite Option stattdessen eine geplante Aufgabe an, die beim Anmelden ohne Rückfrage " +
+            "erhöht startet. Das Einrichten selbst erfordert einmal eine Bestätigung.", 10.5);
+        elevatedHint.TextWrapping = TextWrapping.Wrap;
+        elevatedHint.Margin = new Thickness(0, 0, 0, 10);
+        behaviour.Children.Add(elevatedHint);
+
         behaviour.Children.Add(_closeToTray);
         behaviour.Children.Add(_startMinimized);
 
@@ -430,6 +474,7 @@ internal sealed class SettingsPage : ScrollViewer
         }
 
         updated.StartWithWindows = _autostart.IsChecked == true;
+        updated.StartWithWindowsElevated = _autostartElevated.IsChecked == true;
         updated.CloseToTray = _closeToTray.IsChecked == true;
         updated.StartMinimized = _startMinimized.IsChecked == true;
 

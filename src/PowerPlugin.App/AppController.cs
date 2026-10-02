@@ -121,7 +121,10 @@ internal sealed class AppController : IDisposable
 
         _tray.OpenRequested += (_, _) => _dispatcher.BeginInvoke(ShowWindow);
         _tray.ExitRequested += (_, _) => _dispatcher.BeginInvoke(Shutdown);
-        _tray.AutostartToggled += (_, enabled) => _dispatcher.BeginInvoke(() => SetAutostart(enabled));
+        _tray.AutostartToggled += (_, enabled) => _dispatcher.BeginInvoke(() => SetAutostart(
+            enabled
+                ? (_settings.StartWithWindowsElevated ? AutostartMode.Elevated : AutostartMode.Standard)
+                : AutostartMode.Disabled));
 
         _window.SettingsChanged += (_, updated) => ApplySettings(updated);
         _window.ExitRequested += (_, _) => Shutdown();
@@ -235,49 +238,78 @@ internal sealed class AppController : IDisposable
         _tray.ApplySettings(updated);
         _window.ApplySettings(updated);
 
-        SetAutostart(updated.StartWithWindows);
+        SetAutostart(updated.AutostartMode);
         PurgeOldHistory();
         RefreshStatistics();
 
         DiagnosticsLog.Write("Einstellungen übernommen.");
     }
 
+    /// <summary>
+    /// Takes the autostart state from the system rather than from the settings file. The user can
+    /// change it outside the program - through the autostart list of the task manager, or by
+    /// registering the task by hand - and the switches have to show that.
+    /// </summary>
     private void SyncAutostartState()
     {
-        bool actual = WindowsStartup.IsEnabled();
+        AutostartFacts facts = WindowsStartup.GetFacts();
+        AutostartMode actual = AutostartStatus.ResolveMode(facts);
 
-        if (actual != _settings.StartWithWindows)
+        if (actual != _settings.AutostartMode)
         {
-            // The registry is the source of truth: the user may have removed the entry
-            // through the Task Manager's autostart tab.
-            _settings.StartWithWindows = actual;
+            _settings.StartWithWindows = actual != AutostartMode.Disabled;
+            _settings.StartWithWindowsElevated = actual == AutostartMode.Elevated;
             _settingsStore.Save(_settings);
             _window.ApplySettings(_settings);
         }
 
-        _tray.SetAutostartState(actual);
+        PublishAutostartState(facts);
     }
 
-    private void SetAutostart(bool enabled)
+    private void SetAutostart(AutostartMode mode)
     {
-        if (WindowsStartup.IsEnabled() == enabled)
+        AutostartFacts before = WindowsStartup.GetFacts();
+
+        if (AutostartStatus.ResolveMode(before) == mode && AutostartStatus.ResolveState(before) != AutostartState.Conflicting)
         {
-            _tray.SetAutostartState(enabled);
+            PublishAutostartState(before);
             return;
         }
 
-        if (!WindowsStartup.SetEnabled(enabled))
+        if (!WindowsStartup.Apply(mode))
         {
             MessageBox.Show(
-                "Der Autostart-Eintrag konnte nicht geändert werden.",
+                mode == AutostartMode.Elevated
+                    ? "Die geplante Aufgabe konnte nicht angelegt werden. Für den Start mit " +
+                      "Administratorrechten muss die Rückfrage der Benutzerkontensteuerung bestätigt werden."
+                    : "Der Autostart konnte nicht geändert werden.",
                 "PowerPlugin",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
         }
 
-        _settings.StartWithWindows = WindowsStartup.IsEnabled();
+        // The compatibility flag would keep breaking a plain Run entry, and with the scheduled
+        // task it is pointless - the task provides the elevation itself.
+        if (mode == AutostartMode.Elevated && WindowsStartup.HasRunAsAdminFlag())
+        {
+            WindowsStartup.RemoveRunAsAdminFlag();
+        }
+
+        AutostartFacts after = WindowsStartup.GetFacts();
+        AutostartMode applied = AutostartStatus.ResolveMode(after);
+
+        _settings.StartWithWindows = applied != AutostartMode.Disabled;
+        _settings.StartWithWindowsElevated = applied == AutostartMode.Elevated;
         _settingsStore.Save(_settings);
-        _tray.SetAutostartState(_settings.StartWithWindows);
+        _window.ApplySettings(_settings);
+
+        PublishAutostartState(after);
+    }
+
+    private void PublishAutostartState(AutostartFacts facts)
+    {
+        _tray.SetAutostartState(AutostartStatus.ResolveMode(facts) != AutostartMode.Disabled);
+        _window.SetAutostartStatus(facts);
     }
 
     private void ResetHistory()

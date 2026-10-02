@@ -43,6 +43,12 @@ public sealed class AppSettings
 
     public bool StartWithWindows { get; set; }
 
+    /// <summary>
+    /// Start elevated through a scheduled task instead of the Run key. Only then can autostart and
+    /// the CPU power sensors work together - Windows skips Run entries that need elevation.
+    /// </summary>
+    public bool StartWithWindowsElevated { get; set; }
+
     /// <summary>Start without opening the statistics window - the usual mode for an autostart entry.</summary>
     public bool StartMinimized { get; set; } = true;
 
@@ -80,6 +86,11 @@ public sealed class AppSettings
     /// <summary>All coefficients of the estimation model, exposed so the model can be calibrated.</summary>
     public PowerModelOptions Model { get; set; } = new();
 
+    /// <summary>The two autostart switches of the user interface as one mode.</summary>
+    public AutostartMode AutostartMode => StartWithWindows
+        ? (StartWithWindowsElevated ? AutostartMode.Elevated : AutostartMode.Standard)
+        : AutostartMode.Disabled;
+
     public TimeSpan SampleInterval =>
         TimeSpan.FromSeconds(Math.Clamp(SampleIntervalSeconds, 0.5, 60.0));
 
@@ -105,6 +116,7 @@ public sealed class AppSettings
         PricePerKilowattHour = PricePerKilowattHour,
         CurrencySymbol = CurrencySymbol,
         StartWithWindows = StartWithWindows,
+        StartWithWindowsElevated = StartWithWindowsElevated,
         StartMinimized = StartMinimized,
         CloseToTray = CloseToTray,
         TrayDisplay = TrayDisplay,
