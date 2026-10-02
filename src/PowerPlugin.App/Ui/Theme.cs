@@ -36,9 +36,9 @@ internal static class Theme
     public static readonly Color AccentSoft = Color.FromArgb(0x10, 0xf9, 0x73, 0x16);
 
     /// <summary>
-    /// The stylesheet has no red of its own - amber doubles as its warning colour. The tray icon
-    /// needs a third step above it, so one is taken from the same family the accent and the green
-    /// come from.
+    /// The stylesheet has no warning colours of its own, so the accent doubles as the middle step.
+    /// The tray icon needs a third step above it; that red is taken from the same palette family
+    /// the accent and the green come from.
     /// </summary>
     public static readonly Color Warn = Accent;
     public static readonly Color Danger = FromHex("#ef4444");

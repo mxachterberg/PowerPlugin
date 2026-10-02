@@ -271,7 +271,7 @@ internal sealed class SettingsPage : ScrollViewer
             "Wie oft die Anzeige neu berechnet wird. Unabhängig vom Mittelungsfenster: " +
             "0,5 zeigt zweimal pro Sekunde einen neuen Wert, 5 nur alle fünf Sekunden.", _trayRefresh);
         AddRow(trayTiming, "Symbol grün bis (W)", "Bis zu diesem Wert wird das Symbol grün dargestellt.", _greenThreshold);
-        AddRow(trayTiming, "Symbol gelb bis (W)", "Darüber wechselt das Symbol auf Rot.", _amberThreshold);
+        AddRow(trayTiming, "Symbol orange bis (W)", "Darüber wechselt das Symbol auf Rot.", _amberThreshold);
         tray.Children.Add(trayTiming);
 
         tray.Children.Add(_traySummary);

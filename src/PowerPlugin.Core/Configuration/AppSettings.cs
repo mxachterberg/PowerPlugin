@@ -77,7 +77,7 @@ public sealed class AppSettings
     /// <summary>Below this the tray icon is green.</summary>
     public double TrayGreenThresholdWatts { get; set; } = 80;
 
-    /// <summary>Below this the tray icon is amber, above it turns red.</summary>
+    /// <summary>Below this the tray icon is orange, above it turns red.</summary>
     public double TrayAmberThresholdWatts { get; set; } = 200;
 
     /// <summary>History older than this is deleted on startup. Set to 0 to keep everything.</summary>
