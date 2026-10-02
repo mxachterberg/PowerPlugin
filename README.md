@@ -47,10 +47,18 @@ Läuft ein Notebook im Akkubetrieb, liefert die ACPI-Batterie die tatsächliche 
 Systems. In diesem Fall werden die geschätzten Anteile so skaliert, dass die Aufschlüsselung
 exakt zu dieser Messung passt; Sensorwerte bleiben unangetastet. Das ist der genaueste Modus.
 
-Fehlt der CPU-Leistungssensor, nennt das Programm unter *Einstellungen → Sensorzugriff* den
-konkreten Grund: fehlende Administratorrechte (dann bietet es einen Neustart an), kein
-installierter Hilfstreiber (siehe unten), oder eine Plattform ohne diese Register, etwa eine
-virtuelle Maschine.
+Die Kennzeichnung oben im Fenster („Hohe Genauigkeit", „Mittlere Genauigkeit", „Grobe
+Schätzung") nennt bei einer groben Schätzung gleich den Grund mit, etwa „PawnIO fehlt". Unter
+*Einstellungen → Sensorzugriff* steht eine Checkliste mit allem, was für echte CPU-Werte nötig
+ist – Administratorrechte, Hilfstreiber PawnIO, CPU-Sensor, Grafikkarten –, jeweils grün oder
+orange. **Administratorrechte allein reichen nicht:** Ohne PawnIO bleibt die CPU geschätzt, auch
+wenn das Programm als Administrator läuft. Läuft PowerPlugin erhöht, steht „(Administrator)" in
+der Titelleiste.
+
+Fehlt ein Wert, obwohl beides vorhanden ist, erstellt *Sensorbericht erstellen* eine Textdatei
+mit jedem Sensor, den die Sensorbibliothek auf dem Rechner sieht, samt Name und aktuellem Wert.
+Daran lässt sich ablesen, ob die CPU ihren Package-Sensor unter einem anderen Namen meldet. Der
+Bericht enthält nur Hardware-Bezeichnungen und Messwerte, keine Seriennummern.
 
 ## Voraussetzungen
 
@@ -155,23 +163,31 @@ Die Farbe des Symbols folgt dem angezeigten Wert: grün bis 80 W, orange bis 200
 Beide Grenzen sind einstellbar, ebenso ob das Symbol Watt, den heutigen Verbrauch in kWh oder
 die heutigen Kosten anzeigt – bei kWh und Kosten wirken Messintervall und Mittelung nicht.
 
-### Autostart
+### Autostart und Administratorrechte
 
-Unter *Einstellungen → Verhalten* stehen zwei Schalter:
+Unter *Einstellungen → Verhalten* stehen zwei unabhängige Schalter:
 
-| Schalter | Mechanismus | Rechte |
+| Schalter | Start von Hand | Start mit Windows |
 | --- | --- | --- |
-| **Mit Windows starten** | Eintrag unter `HKCU\…\CurrentVersion\Run` | ohne erhöhte Rechte |
-| **…dabei mit Administratorrechten** | geplante Aufgabe beim Anmelden | erhöht, ohne Rückfrage beim Start |
+| **Mit Windows starten** | – | Eintrag unter `HKCU\…\CurrentVersion\Run`, ohne erhöhte Rechte |
+| **Immer mit Administratorrechten starten** | Windows fragt nach Administratorrechten | geplante Aufgabe beim Anmelden, erhöht und ohne Rückfrage |
 
-Der zweite Schalter ist nicht bloß Bequemlichkeit, sondern der einzige Weg, Autostart und
-CPU-Sensoren zu kombinieren: **Windows startet aus dem Run-Schlüssel grundsätzlich keine Programme,
-die erhöhte Rechte verlangen.** Der Explorer arbeitet diese Einträge unerhöht ab und überspringt
-betroffene stillschweigend. Wer also der `PowerPlugin.exe` unter *Eigenschaften → Kompatibilität*
-den Haken „als Administrator ausführen" gibt, schaltet damit unbemerkt den Autostart ab. Die
-geplante Aufgabe hat dieses Problem nicht — sie startet das Programm selbst erhöht. Beim Umschalten
-entfernt PowerPlugin den Kompatibilitätshaken, weil er dann überflüssig ist und nur weiter stören
-würde.
+„Immer mit Administratorrechten starten" setzt denselben Haken wie *Eigenschaften →
+Kompatibilität → Programm als Administrator ausführen* der `PowerPlugin.exe`. Damit fragt Windows
+bei jedem Start per Doppelklick, Verknüpfung oder Startmenü nach den Rechten. Wird PowerPlugin
+auf einem anderen Weg unerhöht gestartet, fordert es die Rechte selbst einmal an. Wer den
+Schalter einschaltet, während das Programm noch ohne Rechte läuft, bekommt einen Neustart mit
+Administratorrechten angeboten.
+
+Für den Autostart braucht es dabei einen anderen Weg: **Windows startet aus dem Run-Schlüssel
+grundsätzlich keine Programme, die erhöhte Rechte verlangen.** Der Explorer arbeitet diese
+Einträge unerhöht ab und überspringt betroffene stillschweigend. Ein Run-Eintrag plus
+Kompatibilitätshaken ergibt also gar keinen Autostart. Deshalb übernimmt bei eingeschalteten
+Administratorrechten eine geplante Aufgabe den Autostart; sie startet das Programm selbst erhöht.
+
+Läuft PowerPlugin bereits mit Administratorrechten und wird ein zweites Mal ohne gestartet, kann
+die zweite Instanz die laufende nicht erreichen – Windows schirmt erhöhte Prozesse ab. Sie weist
+dann darauf hin, dass das Fenster über das Symbol im Infobereich zu öffnen ist.
 
 Unter den Schaltern steht, was tatsächlich passiert — nicht, was eingestellt wurde. Denn ein
 vorhandener Run-Eintrag heißt noch nicht, dass er auch ausgeführt wird: Windows kann ihn im

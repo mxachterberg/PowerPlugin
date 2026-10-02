@@ -72,6 +72,35 @@ public sealed record AutostartFacts(
 /// </summary>
 public static class AutostartStatus
 {
+    /// <summary>
+    /// What the user evidently wants, read back from the system. Either trace of elevation - the
+    /// compatibility flag or the elevated logon task - means "always run as administrator"; either
+    /// mechanism means "start with Windows".
+    /// <para>
+    /// Reading intent from the system rather than from the settings file keeps the switches
+    /// truthful when something was changed outside the program, through the compatibility tab of
+    /// the executable or the autostart list of the task manager.
+    /// </para>
+    /// </summary>
+    public static (bool RunAsAdministrator, bool StartWithWindows) ReadIntent(AutostartFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+
+        return (facts.RunAsAdminFlagSet || facts.HasScheduledTask,
+                facts.HasRunEntry || facts.HasScheduledTask);
+    }
+
+    /// <summary>
+    /// True when an elevated logon task exists but the compatibility flag does not. An earlier
+    /// version removed the flag on purpose when it created the task - wrongly, because the flag is
+    /// what makes a manual start ask for administrator rights. Such installations get it back.
+    /// </summary>
+    public static bool NeedsFlagRestore(AutostartFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        return facts.HasScheduledTask && !facts.RunAsAdminFlagSet;
+    }
+
     public static AutostartMode ResolveMode(AutostartFacts facts)
     {
         ArgumentNullException.ThrowIfNull(facts);
@@ -132,8 +161,8 @@ public static class AutostartStatus
         AutostartState.BlockedByElevationFlag =>
             "Der Autostart-Eintrag ist vorhanden, läuft aber ins Leere: Die Programmdatei ist als " +
             "\"als Administrator ausführen\" markiert, und solche Einträge überspringt Windows beim " +
-            "Anmelden stillschweigend. Abhilfe: oben \"mit Administratorrechten starten\" wählen, dann " +
-            "übernimmt eine geplante Aufgabe den Start.",
+            "Anmelden stillschweigend. Abhilfe: \"Einstellungen speichern\" - dann übernimmt eine " +
+            "geplante Aufgabe den Autostart, nach einmaliger Bestätigung.",
 
         _ =>
             "Autostart ist doppelt eingerichtet - über eine geplante Aufgabe und zusätzlich über den " +

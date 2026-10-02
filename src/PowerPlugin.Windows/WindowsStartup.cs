@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security;
+using System.Security.Principal;
 using Microsoft.Win32;
 using PowerPlugin.Core.Configuration;
 using PowerPlugin.Core.Monitoring;
@@ -137,11 +139,16 @@ public static class WindowsStartup
     }
 
     /// <summary>
-    /// Removes the "run as administrator" compatibility flag for this executable. Used when the
-    /// user switches to the elevated autostart, where the flag is both unnecessary - the task
-    /// provides the elevation - and harmful, because it would keep breaking a manual Run entry.
+    /// Sets or clears the "run as administrator" compatibility flag for this executable - the same
+    /// switch as the checkbox in the compatibility tab of its properties. With it, a manual start
+    /// shows the consent prompt and runs elevated. The per user key needs no administrator rights.
+    /// <para>
+    /// Only the RUNASADMIN layer is touched; any other compatibility layer on the executable, such
+    /// as a DPI override, stays as it is. "~" marks layers set by the user and leads the value, the
+    /// way the compatibility tab writes it.
+    /// </para>
     /// </summary>
-    public static bool RemoveRunAsAdminFlag()
+    public static bool SetRunAsAdminFlag(bool enabled)
     {
         string? executable = GetExecutablePath();
         if (executable is null)
@@ -151,34 +158,35 @@ public static class WindowsStartup
 
         try
         {
-            using RegistryKey? key = Registry.CurrentUser.OpenSubKey(AppCompatLayersKeyPath, writable: true);
+            using RegistryKey key = Registry.CurrentUser.CreateSubKey(AppCompatLayersKeyPath, writable: true);
 
-            if (key?.GetValue(executable) is not string layers)
+            List<string> layers = (key.GetValue(executable) as string ?? string.Empty)
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(layer => layer != "~" && !layer.Equals("RUNASADMIN", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (enabled)
             {
-                return true;
+                layers.Add("RUNASADMIN");
             }
 
-            string[] remaining = layers
-                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                .Where(layer => !layer.Equals("RUNASADMIN", StringComparison.OrdinalIgnoreCase))
-                .ToArray();
-
-            // "~" on its own is the marker without any layer and would be a leftover.
-            if (remaining.Length == 0 || remaining.All(layer => layer == "~"))
+            if (layers.Count == 0)
             {
                 key.DeleteValue(executable, throwOnMissingValue: false);
             }
             else
             {
-                key.SetValue(executable, string.Join(' ', remaining), RegistryValueKind.String);
+                key.SetValue(executable, "~ " + string.Join(' ', layers), RegistryValueKind.String);
             }
 
-            DiagnosticsLog.Write($"Kompatibilitätsmerker 'als Administrator ausführen' für {executable} entfernt.");
+            DiagnosticsLog.Write(enabled
+                ? $"Kompatibilitätsmerker 'als Administrator ausführen' für {executable} gesetzt."
+                : $"Kompatibilitätsmerker 'als Administrator ausführen' für {executable} entfernt.");
             return true;
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException or SecurityException or IOException)
         {
-            DiagnosticsLog.Write("Kompatibilitätsmerker entfernen", exception);
+            DiagnosticsLog.Write("Kompatibilitätsmerker schreiben", exception);
             return false;
         }
     }
@@ -254,14 +262,49 @@ public static class WindowsStartup
 /// <summary>Restarts the program with administrator rights so the CPU power sensors become readable.</summary>
 public static class ElevationHelper
 {
-    public static bool IsElevated => LibreHardwareTelemetryProvider.IsProcessElevated();
+    // TOKEN_INFORMATION_CLASS.TokenElevationType and TOKEN_ELEVATION_TYPE.TokenElevationTypeLimited.
+    private const int TokenElevationTypeClass = 18;
+    private const int TokenElevationTypeLimited = 3;
+
+    private static readonly Lazy<bool> Elevated = new(LibreHardwareTelemetryProvider.IsProcessElevated);
+    private static readonly Lazy<bool> FilteredAdministrator = new(IsFilteredAdministrator);
+
+    /// <summary>Whether this process runs elevated - fixed for its lifetime, so computed once.</summary>
+    public static bool IsElevated => Elevated.Value;
+
+    /// <summary>
+    /// Whether the consent prompt elevates this same account: true for an administrator, whose
+    /// token UAC merely filters. A standard account would be asked for another account's password
+    /// and the program would then run as that other user, with its own settings and history.
+    /// </summary>
+    public static bool CanElevateSameAccount => IsElevated || FilteredAdministrator.Value;
+
+    private static bool IsFilteredAdministrator()
+    {
+        try
+        {
+            using WindowsIdentity identity = WindowsIdentity.GetCurrent();
+            return GetTokenInformation(identity.Token, TokenElevationTypeClass, out int type, sizeof(int), out _)
+                && type == TokenElevationTypeLimited;
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or SecurityException)
+        {
+            DiagnosticsLog.Write("Kontotyp ermitteln", exception);
+            return false;
+        }
+    }
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetTokenInformation(
+        IntPtr tokenHandle, int tokenInformationClass, out int tokenInformation, int tokenInformationLength, out int returnLength);
 
     /// <summary>
     /// Starts a second instance through the shell with the "runas" verb and reports whether the
     /// user accepted the consent prompt. The caller is responsible for shutting the current
     /// instance down.
     /// </summary>
-    public static bool TryRestartElevated()
+    public static bool TryRestartElevated(string arguments = "")
     {
         string? executable = WindowsStartup.GetExecutablePath();
         if (executable is null)
@@ -271,6 +314,7 @@ public static class ElevationHelper
 
         var startInfo = new ProcessStartInfo(executable)
         {
+            Arguments = arguments,
             UseShellExecute = true,
             Verb = "runas",
             WorkingDirectory = Path.GetDirectoryName(executable) ?? Environment.CurrentDirectory,

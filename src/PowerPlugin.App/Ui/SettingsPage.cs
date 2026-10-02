@@ -34,7 +34,7 @@ internal sealed class SettingsPage : Grid
     private readonly TextBox _trayAverage;
 
     private readonly CheckBox _autostart;
-    private readonly CheckBox _autostartElevated;
+    private readonly CheckBox _runAsAdmin;
     private readonly TextBlock _autostartStatus;
     private readonly CheckBox _closeToTray;
     private readonly CheckBox _startMinimized;
@@ -54,6 +54,13 @@ internal sealed class SettingsPage : Grid
     private readonly TextBlock _elevationInfo;
     private readonly Button _elevateButton;
     private readonly TextBlock _helperDriverHint;
+    private readonly StackPanel _checklist = new() { Margin = new Thickness(0, 0, 0, 14) };
+    private readonly Button _pawnIoButton;
+
+    private SensorAccessState _cpuAccess = SensorAccessState.Unavailable;
+    private string? _helperVersion;
+    private IReadOnlyList<(string Name, bool Measured)> _gpuSensors = Array.Empty<(string, bool)>();
+    private string _renderedChecklist = string.Empty;
 
     /// <summary>Base the inputs are read onto; differs from the stored state after "reset model".</summary>
     private AppSettings _settings;
@@ -96,9 +103,8 @@ internal sealed class SettingsPage : Grid
 
         _autostart = Theme.CheckBox("Mit Windows starten", false);
 
-        _autostartElevated = Theme.CheckBox(
-            "Dabei mit Administratorrechten starten (nötig für die CPU-Sensoren)", false);
-        _autostartElevated.Margin = new Thickness(22, 2, 0, 6);
+        _runAsAdmin = Theme.CheckBox(
+            "Immer mit Administratorrechten starten (nötig für die CPU-Sensoren)", false);
 
         _autostartStatus = Theme.Muted(string.Empty);
         _autostartStatus.TextWrapping = TextWrapping.Wrap;
@@ -130,10 +136,15 @@ internal sealed class SettingsPage : Grid
         _elevateButton = Theme.Button("Als Administrator neu starten");
         _elevateButton.Click += (_, _) => RestartElevatedRequested?.Invoke(this, EventArgs.Empty);
 
-        _helperDriverHint = Theme.Muted($"Bezugsquelle: {HelperDriver.DownloadUrl}");
+        _helperDriverHint = Theme.Muted(
+            "PawnIO wird separat installiert und danach von PowerPlugin automatisch erkannt; " +
+            "anschließend PowerPlugin mit Administratorrechten neu starten.", 11);
         _helperDriverHint.TextWrapping = TextWrapping.Wrap;
         _helperDriverHint.Margin = new Thickness(0, 8, 0, 0);
         _helperDriverHint.Visibility = Visibility.Collapsed;
+
+        _pawnIoButton = Theme.Button("pawnio.eu öffnen");
+        _pawnIoButton.Click += (_, _) => OpenInBrowser(HelperDriver.DownloadUrl);
 
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -163,10 +174,99 @@ internal sealed class SettingsPage : Grid
 
     public event EventHandler? RestartElevatedRequested;
 
+    /// <summary>The user wants a list of every sensor the library sees, for diagnosis.</summary>
+    public event EventHandler? SensorReportRequested;
+
+    /// <summary>Which dedicated graphics cards are measured by a sensor and which are modelled.</summary>
+    public void SetGpuSensors(IReadOnlyList<(string Name, bool Measured)> gpus)
+    {
+        _gpuSensors = gpus;
+        RenderChecklist();
+    }
+
     /// <summary>
-    /// Explains the state of the CPU sensors. The two causes - missing rights and missing helper
-    /// driver - need different answers, and only one of them can be fixed from inside the program.
+    /// The conditions for real CPU readings, one line each with a green or orange marker, so the
+    /// missing one is obvious - administrator rights alone, for instance, are not enough.
     /// </summary>
+    private void RenderChecklist()
+    {
+        bool elevated = ElevationHelper.IsElevated;
+        bool pawnIo = _cpuAccess != SensorAccessState.NeedsHelperDriver && HelperDriver.IsInstalled;
+
+        var rows = new List<(string Label, string Value, bool Ok)>
+        {
+            ("Administratorrechte", elevated ? "ja" : "nein - PowerPlugin läuft ohne erhöhte Rechte", elevated),
+            ("Hilfstreiber PawnIO",
+                pawnIo ? $"installiert{(_helperVersion is null ? string.Empty : ", Version " + _helperVersion)}" : "nicht installiert",
+                pawnIo),
+            ("CPU-Leistung",
+                _cpuAccess == SensorAccessState.Available ? "gemessen (Package-Sensor)" : "geschätzt aus der Auslastung",
+                _cpuAccess == SensorAccessState.Available),
+        };
+
+        foreach ((string name, bool measured) in _gpuSensors)
+        {
+            rows.Add(("Grafikkarte", $"{name}: {(measured ? "gemessen" : "geschätzt, kein Leistungssensor")}", measured));
+        }
+
+        // Re-rendered at every sample; only rebuild when something actually changed.
+        string signature = string.Join('|', rows.Select(r => $"{r.Label}:{r.Value}:{r.Ok}"));
+        if (signature == _renderedChecklist)
+        {
+            return;
+        }
+
+        _renderedChecklist = signature;
+        _checklist.Children.Clear();
+
+        foreach ((string label, string value, bool ok) in rows)
+        {
+            _checklist.Children.Add(ChecklistRow(label, value, ok));
+        }
+    }
+
+    private static UIElement ChecklistRow(string label, string value, bool ok)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(19) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        grid.Children.Add(new Border
+        {
+            Width = 7,
+            Height = 7,
+            Background = ok ? Theme.GoodBrush : Theme.AccentBrush,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        TextBlock labelBlock = Theme.Label(label, 10.5);
+        labelBlock.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(labelBlock, 1);
+        grid.Children.Add(labelBlock);
+
+        TextBlock valueBlock = Theme.Body(value, 12.5);
+        valueBlock.Foreground = ok ? Theme.TextBrush : Theme.AccentBrush;
+        valueBlock.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(valueBlock, 2);
+        grid.Children.Add(valueBlock);
+
+        return grid;
+    }
+
+    private static void OpenInBrowser(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Core.Monitoring.DiagnosticsLog.Write("Browser öffnen", exception);
+        }
+    }
+
     /// <summary>
     /// Shows what the autostart actually does, which is not always what the switches above ask
     /// for - Windows can veto a Run entry without touching it.
@@ -183,8 +283,17 @@ internal sealed class SettingsPage : Grid
         };
     }
 
+    /// <summary>
+    /// Explains the state of the CPU sensors. The two causes - missing rights and missing helper
+    /// driver - need different answers, and only one of them can be fixed from inside the program.
+    /// </summary>
     public void SetSensorAccess(SensorAccessState access, string? helperVersion)
     {
+        _cpuAccess = access;
+        _helperVersion = helperVersion;
+        RenderChecklist();
+
+        // Restarting elevated only helps when PawnIO is there - without it the CPU stays estimated.
         _elevateButton.Visibility = access == SensorAccessState.NeedsAdministrator
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -192,6 +301,7 @@ internal sealed class SettingsPage : Grid
         _helperDriverHint.Visibility = access == SensorAccessState.NeedsHelperDriver
             ? Visibility.Visible
             : Visibility.Collapsed;
+        _pawnIoButton.Visibility = _helperDriverHint.Visibility;
 
         _elevationInfo.Text = access switch
         {
@@ -242,8 +352,7 @@ internal sealed class SettingsPage : Grid
         _trayAverage.Text = _settings.TrayAverageWindowSeconds.ToString("0.#", CultureInfo.CurrentCulture);
 
         _autostart.IsChecked = _settings.StartWithWindows;
-        _autostartElevated.IsChecked = _settings.StartWithWindowsElevated;
-        _autostartElevated.IsEnabled = _settings.StartWithWindows;
+        _runAsAdmin.IsChecked = _settings.RunAsAdministrator;
         _closeToTray.IsChecked = _settings.CloseToTray;
         _startMinimized.IsChecked = _settings.StartMinimized;
         _iconSubtle.IsChecked = _settings.AppIcon == AppIconStyle.Subtle;
@@ -288,8 +397,6 @@ internal sealed class SettingsPage : Grid
             radio.Checked += (_, _) => UpdateTraySummary();
         }
 
-        _autostart.Checked += (_, _) => _autostartElevated.IsEnabled = true;
-        _autostart.Unchecked += (_, _) => _autostartElevated.IsEnabled = false;
     }
 
     private UIElement BuildContent()
@@ -336,15 +443,16 @@ internal sealed class SettingsPage : Grid
         // ---- Behaviour --------------------------------------------------------------
         var behaviour = new StackPanel();
         behaviour.Children.Add(_autostart);
-        behaviour.Children.Add(_autostartElevated);
+        behaviour.Children.Add(_runAsAdmin);
         behaviour.Children.Add(_autostartStatus);
 
         TextBlock elevatedHint = Theme.Muted(
-            "Der gewöhnliche Autostart läuft über einen Registry-Eintrag und startet das Programm " +
-            "ohne erhöhte Rechte. Windows überspringt solche Einträge jedoch, sobald die " +
-            "Programmdatei als \"als Administrator ausführen\" markiert ist - deshalb legt die " +
-            "zweite Option stattdessen eine geplante Aufgabe an, die beim Anmelden ohne Rückfrage " +
-            "erhöht startet. Das Einrichten selbst erfordert einmal eine Bestätigung.", 10.5);
+            "Mit Administratorrechten fragt Windows bei jedem Start von Hand nach - das ist derselbe " +
+            "Haken wie \"Als Administrator ausführen\" in den Eigenschaften der PowerPlugin.exe. " +
+            "Der Autostart läuft dann über eine geplante Aufgabe, die beim Anmelden ohne Rückfrage " +
+            "erhöht startet; den gewöhnlichen Registry-Eintrag würde Windows in diesem Fall " +
+            "überspringen. Das Einrichten erfordert einmal eine Bestätigung. Für echte CPU-Werte " +
+            "braucht es zusätzlich PawnIO, siehe Sensorzugriff.", 10.5);
         elevatedHint.TextWrapping = TextWrapping.Wrap;
         elevatedHint.Margin = new Thickness(0, 0, 0, 10);
         behaviour.Children.Add(elevatedHint);
@@ -392,11 +500,31 @@ internal sealed class SettingsPage : Grid
 
         // ---- Sensors ----------------------------------------------------------------
         var sensors = new StackPanel();
+        sensors.Children.Add(_checklist);
         sensors.Children.Add(_elevationInfo);
         sensors.Children.Add(_helperDriverHint);
-        _elevateButton.HorizontalAlignment = HorizontalAlignment.Left;
-        _elevateButton.Margin = new Thickness(0, 10, 0, 0);
-        sensors.Children.Add(_elevateButton);
+
+        var sensorActions = new WrapPanel { Margin = new Thickness(0, 12, 0, 0) };
+
+        _pawnIoButton.Margin = new Thickness(0, 0, 10, 8);
+        _pawnIoButton.Visibility = Visibility.Collapsed;
+        sensorActions.Children.Add(_pawnIoButton);
+
+        _elevateButton.Margin = new Thickness(0, 0, 10, 8);
+        sensorActions.Children.Add(_elevateButton);
+
+        Button report = Theme.Button("Sensorbericht erstellen");
+        report.Margin = new Thickness(0, 0, 10, 8);
+        report.Click += (_, _) => SensorReportRequested?.Invoke(this, EventArgs.Empty);
+        sensorActions.Children.Add(report);
+        sensors.Children.Add(sensorActions);
+
+        TextBlock reportHint = Theme.Muted(
+            "Der Sensorbericht listet jeden Sensor, den die Sensorbibliothek auf diesem Rechner sieht, " +
+            "mit aktuellem Wert - hilfreich, wenn ein Wert trotz PawnIO und Administratorrechten " +
+            "fehlt. Er enthält Hardware-Bezeichnungen und Messwerte, keine Seriennummern.", 11);
+        reportHint.TextWrapping = TextWrapping.Wrap;
+        sensors.Children.Add(reportHint);
         stack.Children.Add(Section("Sensorzugriff", sensors));
 
         // ---- Data --------------------------------------------------------------------
@@ -600,7 +728,7 @@ internal sealed class SettingsPage : Grid
         }
 
         updated.StartWithWindows = _autostart.IsChecked == true;
-        updated.StartWithWindowsElevated = _autostartElevated.IsChecked == true;
+        updated.RunAsAdministrator = _runAsAdmin.IsChecked == true;
         updated.CloseToTray = _closeToTray.IsChecked == true;
         updated.StartMinimized = _startMinimized.IsChecked == true;
         updated.AppIcon = _iconBold.IsChecked == true ? AppIconStyle.Bold : AppIconStyle.Subtle;
