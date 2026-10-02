@@ -134,6 +134,36 @@ public sealed class AutostartStatusTests
         Assert.False(AutostartStatus.NeedsFlagRestore(AutostartFacts.None));
     }
 
+    [Theory]
+    [InlineData("\"C:\\Program Files\\PowerPlugin\\PowerPlugin.exe\"", @"C:\Program Files\PowerPlugin\PowerPlugin.exe")]
+    [InlineData("\"C:\\powerplugin\\publish\\PowerPlugin.exe\" --minimized", @"C:\powerplugin\publish\PowerPlugin.exe")]
+    [InlineData(@"C:\Tools\PowerPlugin.exe", @"C:\Tools\PowerPlugin.exe")]
+    [InlineData("  ", null)]
+    [InlineData(null, null)]
+    public void TheExecutableIsTakenFromTheRunValue(string? commandLine, string? expected)
+    {
+        Assert.Equal(expected, AutostartStatus.ExecutableOf(commandLine));
+    }
+
+    [Fact]
+    public void TheAutostartFollowsOnlyAProgramThatHasMoved()
+    {
+        const string installed = @"C:\Program Files\PowerPlugin\PowerPlugin.exe";
+        const string old = @"C:\powerplugin\publish\PowerPlugin.exe";
+
+        // The old copy is gone: the entry follows.
+        Assert.True(AutostartStatus.ShouldFollowMove(old, installed, _ => false));
+
+        // The old copy still exists - a test build started elsewhere must not take it over.
+        Assert.False(AutostartStatus.ShouldFollowMove(old, installed, _ => true));
+
+        // Already pointing here, in whatever spelling.
+        Assert.False(AutostartStatus.ShouldFollowMove(installed.ToUpperInvariant(), installed, _ => false));
+
+        // A task of an older version, whose target was never recorded, is adopted once.
+        Assert.True(AutostartStatus.ShouldFollowMove(null, installed, _ => true));
+    }
+
     [Fact]
     public void BothSwitchesSurviveARoundTrip()
     {

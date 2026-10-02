@@ -32,6 +32,14 @@ public static class WindowsStartup
 
     private const string ValueName = "PowerPlugin";
 
+    /// <summary>Where PowerPlugin keeps what Windows cannot be asked for afterwards.</summary>
+    private const string ProgramKeyPath = @"Software\PowerPlugin";
+
+    /// <summary>The executable the logon task was registered for.</summary>
+    private const string TaskExecutableValueName = "TaskExecutable";
+
+    private const string RunAsAdminLayer = "RUNASADMIN";
+
     /// <summary>Gathers everything the state of the autostart depends on.</summary>
     public static AutostartFacts GetFacts() => new(
         HasRunEntry: HasRunEntry(),
@@ -128,8 +136,7 @@ public static class WindowsStartup
                 return false;
             }
 
-            return layers.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                .Any(layer => layer.Equals("RUNASADMIN", StringComparison.OrdinalIgnoreCase));
+            return ContainsRunAsAdmin(layers);
         }
         catch (Exception exception) when (exception is UnauthorizedAccessException or SecurityException)
         {
@@ -137,6 +144,10 @@ public static class WindowsStartup
             return false;
         }
     }
+
+    private static bool ContainsRunAsAdmin(string layers) =>
+        layers.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Any(layer => layer.Equals(RunAsAdminLayer, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Sets or clears the "run as administrator" compatibility flag for this executable - the same
@@ -151,23 +162,23 @@ public static class WindowsStartup
     public static bool SetRunAsAdminFlag(bool enabled)
     {
         string? executable = GetExecutablePath();
-        if (executable is null)
-        {
-            return false;
-        }
+        return executable is not null && SetRunAsAdminFlag(enabled, executable);
+    }
 
+    private static bool SetRunAsAdminFlag(bool enabled, string executable)
+    {
         try
         {
             using RegistryKey key = Registry.CurrentUser.CreateSubKey(AppCompatLayersKeyPath, writable: true);
 
             List<string> layers = (key.GetValue(executable) as string ?? string.Empty)
                 .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                .Where(layer => layer != "~" && !layer.Equals("RUNASADMIN", StringComparison.OrdinalIgnoreCase))
+                .Where(layer => layer != "~" && !layer.Equals(RunAsAdminLayer, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             if (enabled)
             {
-                layers.Add("RUNASADMIN");
+                layers.Add(RunAsAdminLayer);
             }
 
             if (layers.Count == 0)
@@ -188,6 +199,123 @@ public static class WindowsStartup
         {
             DiagnosticsLog.Write("Kompatibilitätsmerker schreiben", exception);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Carries the start setup over once the program has moved, say from a build folder into
+    /// C:\Program Files. The compatibility flag, the Run entry and the logon task are all bound to
+    /// the path of the executable and would otherwise keep pointing at a file that is gone.
+    /// Returns true when anything changed.
+    /// </summary>
+    public static bool FollowMove(AutostartFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+
+        string? current = GetExecutablePath();
+        if (current is null)
+        {
+            return false;
+        }
+
+        bool changed = TakeOverRunAsAdminFlag(current);
+
+        string? runTarget = AutostartStatus.ExecutableOf(ReadValue(Registry.CurrentUser, RunKeyPath, ValueName));
+        if (facts.HasRunEntry && AutostartStatus.ShouldFollowMove(runTarget, current, File.Exists))
+        {
+            DiagnosticsLog.Write($"Autostart-Eintrag zeigte auf {runTarget}, jetzt auf {current}.");
+            changed |= SetRunEntry(true);
+        }
+
+        // Registering the task needs administrator rights. Unelevated, it waits for the next
+        // start - which elevates itself as long as the task exists.
+        string? taskTarget = ReadValue(Registry.CurrentUser, ProgramKeyPath, TaskExecutableValueName);
+        if (facts.HasScheduledTask && ElevationHelper.IsElevated &&
+            AutostartStatus.ShouldFollowMove(taskTarget, current, File.Exists))
+        {
+            DiagnosticsLog.Write($"Geplante Aufgabe zeigte auf {taskTarget ?? "einen unbekannten Pfad"}, jetzt auf {current}.");
+            changed |= ScheduledTaskAutostart.Create();
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// The flag belongs to one path, so a moved program would silently lose "always run as
+    /// administrator". A flag on a copy of the executable that no longer exists is moved over.
+    /// </summary>
+    private static bool TakeOverRunAsAdminFlag(string current)
+    {
+        string fileName = Path.GetFileName(current);
+        string[] vanished;
+
+        try
+        {
+            using RegistryKey? key = Registry.CurrentUser.OpenSubKey(AppCompatLayersKeyPath, writable: false);
+            if (key is null)
+            {
+                return false;
+            }
+
+            vanished = key.GetValueNames()
+                .Where(path => !path.Equals(current, StringComparison.OrdinalIgnoreCase) &&
+                               Path.GetFileName(path).Equals(fileName, StringComparison.OrdinalIgnoreCase) &&
+                               key.GetValue(path) is string layers && ContainsRunAsAdmin(layers) &&
+                               !File.Exists(path))
+                .ToArray();
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or SecurityException or IOException)
+        {
+            DiagnosticsLog.Write("Kompatibilitätsmerker lesen", exception);
+            return false;
+        }
+
+        if (vanished.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (string path in vanished)
+        {
+            SetRunAsAdminFlag(false, path);
+        }
+
+        return HasRunAsAdminFlag(Registry.CurrentUser, current) || SetRunAsAdminFlag(true, current);
+    }
+
+    /// <summary>Notes which executable the logon task starts; the task itself is not readable without effort.</summary>
+    internal static void RecordTaskExecutable(string? executable)
+    {
+        try
+        {
+            using RegistryKey key = Registry.CurrentUser.CreateSubKey(ProgramKeyPath, writable: true);
+
+            if (executable is null)
+            {
+                key.DeleteValue(TaskExecutableValueName, throwOnMissingValue: false);
+            }
+            else
+            {
+                key.SetValue(TaskExecutableValueName, executable, RegistryValueKind.String);
+            }
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or SecurityException or IOException)
+        {
+            DiagnosticsLog.Write("Pfad der geplanten Aufgabe merken", exception);
+        }
+    }
+
+    private static string? ReadValue(RegistryKey root, string keyPath, string valueName)
+    {
+        try
+        {
+            using RegistryKey? key = root.OpenSubKey(keyPath, writable: false);
+            return key?.GetValue(valueName) as string;
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or SecurityException or IOException)
+        {
+            DiagnosticsLog.Write("Registry lesen", exception);
+            return null;
         }
     }
 
