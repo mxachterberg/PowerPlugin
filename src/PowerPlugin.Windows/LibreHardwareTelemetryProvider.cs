@@ -1,4 +1,5 @@
 using System.Security.Principal;
+using System.Text;
 using LibreHardwareMonitor.Hardware;
 using PowerPlugin.Core.Hardware;
 using PowerPlugin.Core.Monitoring;
@@ -23,7 +24,24 @@ public sealed class LibreHardwareTelemetryProvider : IHardwareTelemetryProvider
     /// <summary>Highest fan speed seen so far, used to normalise the fan load.</summary>
     private readonly Dictionary<string, double> _maxFanRpm = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Names of the CPU package power sensor, in order of preference. Intel processors report
+    /// "CPU Package", AMD Zen processors "Package" (checked against the decompiled library 0.9.6).
+    /// </summary>
+    public static readonly IReadOnlyList<string> CpuPackageSensorNames =
+        ["CPU Package", "Package", "CPU PPT", "Package Power"];
+
+    /// <summary>Names of the board power sensor of a graphics card, in order of preference.</summary>
+    public static readonly IReadOnlyList<string> GpuPowerSensorNames =
+        ["GPU Package", "GPU Power", "GPU Total", "GPU PPT", "Board Power"];
+
     private readonly bool _isElevated = IsProcessElevated();
+
+    /// <summary>
+    /// The sensor library is not thread safe. The sampling loop reads it on a background thread,
+    /// the sensor report from the user interface - both go through this lock.
+    /// </summary>
+    private readonly object _gate = new();
     private bool _opened;
     private bool _isMobileSystem;
     private bool _disposed;
@@ -45,6 +63,78 @@ public sealed class LibreHardwareTelemetryProvider : IHardwareTelemetryProvider
     }
 
     public HardwareInventory GetInventory()
+    {
+        lock (_gate)
+        {
+            return GetInventoryCore();
+        }
+    }
+
+    public HardwareTelemetry Read()
+    {
+        lock (_gate)
+        {
+            return ReadCore();
+        }
+    }
+
+    /// <summary>
+    /// Lists every hardware node and every sensor the library exposes, with current values.
+    /// <para>
+    /// Meant for diagnosis when a sensor that should be there is not used: it shows the names the
+    /// library actually gives its sensors on this machine. Deliberately not the library's own
+    /// report, which also dumps SMBIOS tables and drive data including serial numbers - this one
+    /// holds only hardware names and readings, so it can be shared.
+    /// </para>
+    /// </summary>
+    public string BuildSensorReport()
+    {
+        lock (_gate)
+        {
+            EnsureOpen();
+
+            var report = new StringBuilder();
+
+            if (!_opened)
+            {
+                report.AppendLine("Das Sensor-Backend konnte nicht geöffnet werden.");
+                return report.ToString();
+            }
+
+            _computer.Accept(_visitor);
+
+            foreach (IHardware hardware in _computer.Hardware)
+            {
+                AppendHardware(report, hardware, depth: 0);
+            }
+
+            return report.ToString();
+        }
+    }
+
+    private static void AppendHardware(StringBuilder report, IHardware hardware, int depth)
+    {
+        string indent = new(' ', depth * 4);
+        report.AppendLine($"{indent}[{hardware.HardwareType}] {hardware.Name}   {hardware.Identifier}");
+
+        foreach (ISensor sensor in hardware.Sensors.OrderBy(s => s.SensorType).ThenBy(s => s.Index))
+        {
+            string value = sensor.Value is { } v
+                ? v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                : "-";
+
+            report.AppendLine($"{indent}    {sensor.SensorType,-12} {sensor.Name,-36} {value}");
+        }
+
+        foreach (IHardware sub in hardware.SubHardware)
+        {
+            AppendHardware(report, sub, depth + 1);
+        }
+
+        report.AppendLine();
+    }
+
+    private HardwareInventory GetInventoryCore()
     {
         EnsureOpen();
 
@@ -99,7 +189,7 @@ public sealed class LibreHardwareTelemetryProvider : IHardwareTelemetryProvider
         };
     }
 
-    public HardwareTelemetry Read()
+    private HardwareTelemetry ReadCore()
     {
         EnsureOpen();
 
@@ -215,7 +305,7 @@ public sealed class LibreHardwareTelemetryProvider : IHardwareTelemetryProvider
     /// </summary>
     private static double? ReadCpuPackageWatts(IHardware hardware)
     {
-        foreach (string name in new[] { "CPU Package", "Package", "CPU PPT", "Package Power" })
+        foreach (string name in CpuPackageSensorNames)
         {
             ISensor? sensor = hardware.Sensors.FirstOrDefault(s =>
                 s.SensorType == SensorType.Power &&
@@ -253,7 +343,7 @@ public sealed class LibreHardwareTelemetryProvider : IHardwareTelemetryProvider
     /// </summary>
     private static double? ReadGpuWatts(IHardware hardware)
     {
-        foreach (string name in new[] { "GPU Package", "GPU Power", "GPU Total", "GPU PPT", "Board Power" })
+        foreach (string name in GpuPowerSensorNames)
         {
             ISensor? sensor = hardware.Sensors.FirstOrDefault(s =>
                 s.SensorType == SensorType.Power &&

@@ -54,10 +54,13 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; }
 
     /// <summary>
-    /// Start elevated through a scheduled task instead of the Run key. Only then can autostart and
-    /// the CPU power sensors work together - Windows skips Run entries that need elevation.
+    /// Always run with administrator rights, which the CPU power sensors need. Applies to every
+    /// start, by two different means: a manual start carries the "run as administrator"
+    /// compatibility flag and shows the consent prompt, the autostart goes through a scheduled
+    /// task that starts the program elevated without one. The Run key cannot be used for this -
+    /// Windows skips Run entries that need elevation.
     /// </summary>
-    public bool StartWithWindowsElevated { get; set; }
+    public bool RunAsAdministrator { get; set; }
 
     /// <summary>Start without opening the statistics window - the usual mode for an autostart entry.</summary>
     public bool StartMinimized { get; set; } = true;
@@ -102,9 +105,9 @@ public sealed class AppSettings
     /// <summary>All coefficients of the estimation model, exposed so the model can be calibrated.</summary>
     public PowerModelOptions Model { get; set; } = new();
 
-    /// <summary>The two autostart switches of the user interface as one mode.</summary>
+    /// <summary>How the autostart has to be set up for the two switches.</summary>
     public AutostartMode AutostartMode => StartWithWindows
-        ? (StartWithWindowsElevated ? AutostartMode.Elevated : AutostartMode.Standard)
+        ? (RunAsAdministrator ? AutostartMode.Elevated : AutostartMode.Standard)
         : AutostartMode.Disabled;
 
     public TimeSpan SampleInterval =>
@@ -132,7 +135,7 @@ public sealed class AppSettings
         PricePerKilowattHour = PricePerKilowattHour,
         CurrencySymbol = CurrencySymbol,
         StartWithWindows = StartWithWindows,
-        StartWithWindowsElevated = StartWithWindowsElevated,
+        RunAsAdministrator = RunAsAdministrator,
         StartMinimized = StartMinimized,
         CloseToTray = CloseToTray,
         AppIcon = AppIcon,

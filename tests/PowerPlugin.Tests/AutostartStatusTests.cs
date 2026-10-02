@@ -92,17 +92,46 @@ public sealed class AutostartStatusTests
     [InlineData(true, true, AutostartMode.Elevated)]
     public void TheTwoSwitchesMapToOneMode(bool enabled, bool elevated, AutostartMode expected)
     {
-        var settings = new AppSettings { StartWithWindows = enabled, StartWithWindowsElevated = elevated };
+        var settings = new AppSettings { StartWithWindows = enabled, RunAsAdministrator = elevated };
 
         Assert.Equal(expected, settings.AutostartMode);
     }
 
     [Fact]
-    public void TheElevatedSwitchDoesNothingWhileAutostartIsOff()
+    public void RunningAsAdministratorWithoutAutostartRegistersNoAutostart()
     {
-        var settings = new AppSettings { StartWithWindows = false, StartWithWindowsElevated = true };
+        // Administrator rights on manual starts are a separate wish; no logon task follows from it.
+        var settings = new AppSettings { StartWithWindows = false, RunAsAdministrator = true };
 
         Assert.Equal(AutostartMode.Disabled, settings.AutostartMode);
+    }
+
+    [Theory]
+    // flag,  task,  run   -> admin, autostart
+    [InlineData(false, false, false, false, false)]
+    [InlineData(true, false, false, true, false)]   // compatibility tab only: manual starts elevated
+    [InlineData(false, false, true, false, true)]   // plain Run entry
+    [InlineData(true, false, true, true, true)]     // the original situation: flag breaks the Run entry
+    [InlineData(false, true, false, true, true)]    // task without flag: left behind by the old bug
+    [InlineData(true, true, false, true, true)]     // the intended elevated setup
+    public void IntentIsReadFromTheSystem(bool flag, bool task, bool run, bool admin, bool autostart)
+    {
+        var facts = new AutostartFacts(HasRunEntry: run, HasScheduledTask: task,
+            DisabledInTaskManager: false, RunAsAdminFlagSet: flag);
+
+        Assert.Equal((admin, autostart), AutostartStatus.ReadIntent(facts));
+    }
+
+    [Fact]
+    public void AnElevatedTaskWithoutTheFlagGetsTheFlagBack()
+    {
+        // The previous version removed the flag when it created the task, which silently stopped
+        // manual starts from asking for administrator rights.
+        Assert.True(AutostartStatus.NeedsFlagRestore(new AutostartFacts(false, true, false, false)));
+
+        Assert.False(AutostartStatus.NeedsFlagRestore(new AutostartFacts(false, true, false, true)));
+        Assert.False(AutostartStatus.NeedsFlagRestore(new AutostartFacts(true, false, false, false)));
+        Assert.False(AutostartStatus.NeedsFlagRestore(AutostartFacts.None));
     }
 
     [Fact]
@@ -113,12 +142,12 @@ public sealed class AutostartStatusTests
         try
         {
             var store = new SettingsStore(file);
-            store.Save(new AppSettings { StartWithWindows = true, StartWithWindowsElevated = true });
+            store.Save(new AppSettings { StartWithWindows = true, RunAsAdministrator = true });
 
             AppSettings read = store.Load();
 
             Assert.True(read.StartWithWindows);
-            Assert.True(read.StartWithWindowsElevated);
+            Assert.True(read.RunAsAdministrator);
             Assert.Equal(AutostartMode.Elevated, read.AutostartMode);
         }
         finally

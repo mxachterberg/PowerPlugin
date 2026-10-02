@@ -6,6 +6,7 @@ using PowerPlugin.App.Tray;
 using PowerPlugin.App.Ui;
 using PowerPlugin.Core.Configuration;
 using PowerPlugin.Core.Estimation;
+using PowerPlugin.Core.Hardware;
 using PowerPlugin.Core.Model;
 using PowerPlugin.Core.Monitoring;
 using PowerPlugin.Core.Statistics;
@@ -27,6 +28,7 @@ internal sealed class AppController : IDisposable
     private readonly EnergyRecorder _recorder;
     private readonly StatisticsCalculator _calculator;
     private readonly PowerMonitor _monitor;
+    private readonly LibreHardwareTelemetryProvider _provider = new();
     private readonly TrayController _tray;
     private readonly MainWindow _window;
     private readonly DispatcherTimer _statisticsTimer;
@@ -58,7 +60,7 @@ internal sealed class AppController : IDisposable
         _calculator = new StatisticsCalculator(_store);
 
         _monitor = new PowerMonitor(
-            new LibreHardwareTelemetryProvider(),
+            _provider,
             new ComponentPowerEstimator(_settings.Model),
             _recorder,
             _settings.SampleInterval);
@@ -75,7 +77,8 @@ internal sealed class AppController : IDisposable
         WireEvents();
     }
 
-    public void Start()
+    /// <param name="showWindow">Opens the window even when the program is set to start in the tray.</param>
+    public void Start(bool showWindow = false)
     {
         SyncAutostartState();
 
@@ -87,7 +90,7 @@ internal sealed class AppController : IDisposable
         _trayTimer.Start();
         RefreshStatistics();
 
-        if (_isFirstRun || !_settings.StartMinimized)
+        if (_isFirstRun || showWindow || !_settings.StartMinimized)
         {
             ShowWindow();
         }
@@ -121,16 +124,15 @@ internal sealed class AppController : IDisposable
 
         _tray.OpenRequested += (_, _) => _dispatcher.BeginInvoke(ShowWindow);
         _tray.ExitRequested += (_, _) => _dispatcher.BeginInvoke(Shutdown);
-        _tray.AutostartToggled += (_, enabled) => _dispatcher.BeginInvoke(() => SetAutostart(
-            enabled
-                ? (_settings.StartWithWindowsElevated ? AutostartMode.Elevated : AutostartMode.Standard)
-                : AutostartMode.Disabled));
+        _tray.AutostartToggled += (_, enabled) => _dispatcher.BeginInvoke(
+            () => ApplyStartup(_settings.RunAsAdministrator, enabled));
 
         _window.SettingsChanged += (_, updated) => ApplySettings(updated);
         _window.ExitRequested += (_, _) => Shutdown();
         _window.ResetHistoryRequested += (_, _) => ResetHistory();
         _window.OpenDataFolderRequested += (_, _) => OpenDataFolder();
         _window.RestartElevatedRequested += (_, _) => RestartElevated();
+        _window.SensorReportRequested += (_, _) => CreateSensorReport();
 
         // Standby would otherwise be integrated as if the machine had kept running.
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
@@ -227,6 +229,7 @@ internal sealed class AppController : IDisposable
 
     private void ApplySettings(AppSettings updated)
     {
+        bool wasRunAsAdministrator = _settings.RunAsAdministrator;
         _settings = updated;
         _settingsStore.Save(updated);
 
@@ -238,74 +241,130 @@ internal sealed class AppController : IDisposable
         _tray.ApplySettings(updated);
         _window.ApplySettings(updated);
 
-        SetAutostart(updated.AutostartMode);
+        ApplyStartup(updated.RunAsAdministrator, updated.StartWithWindows);
         PurgeOldHistory();
         RefreshStatistics();
 
         DiagnosticsLog.Write("Einstellungen übernommen.");
+
+        // The switch acts on the next start; offer that start right away. Deferred, because the
+        // restart disposes everything this method and the settings page still work with.
+        if (!wasRunAsAdministrator && _settings.RunAsAdministrator && !ElevationHelper.IsElevated)
+        {
+            _dispatcher.BeginInvoke(OfferElevatedRestart);
+        }
+    }
+
+    private void OfferElevatedRestart()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        MessageBoxResult answer = MessageBox.Show(
+            "Ab jetzt fragt Windows bei jedem Start von PowerPlugin nach Administratorrechten.\n\n" +
+            "Diese Sitzung läuft noch ohne. Jetzt mit Administratorrechten neu starten?",
+            "PowerPlugin",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (answer == MessageBoxResult.Yes)
+        {
+            RestartElevated();
+        }
     }
 
     /// <summary>
-    /// Takes the autostart state from the system rather than from the settings file. The user can
-    /// change it outside the program - through the autostart list of the task manager, or by
-    /// registering the task by hand - and the switches have to show that.
+    /// Takes both switches from the system rather than from the settings file - they can be
+    /// changed outside the program, through the compatibility tab of the executable or the
+    /// autostart list of the task manager - and repairs two states that can be left behind.
     /// </summary>
     private void SyncAutostartState()
     {
         AutostartFacts facts = WindowsStartup.GetFacts();
-        AutostartMode actual = AutostartStatus.ResolveMode(facts);
 
-        if (actual != _settings.AutostartMode)
+        // An earlier version removed the compatibility flag when it created the elevated task,
+        // which silently stopped manual starts from asking for administrator rights.
+        if (AutostartStatus.NeedsFlagRestore(facts) && WindowsStartup.SetRunAsAdminFlag(true))
         {
-            _settings.StartWithWindows = actual != AutostartMode.Disabled;
-            _settings.StartWithWindowsElevated = actual == AutostartMode.Elevated;
-            _settingsStore.Save(_settings);
-            _window.ApplySettings(_settings);
+            facts = WindowsStartup.GetFacts();
         }
 
-        PublishAutostartState(facts);
+        (bool admin, bool autostart) = AutostartStatus.ReadIntent(facts);
+
+        // Flag plus Run entry means a dead autostart: Windows skips the entry. Running elevated,
+        // the task can be registered without a prompt, so it is fixed right here.
+        if (admin && autostart && !facts.HasScheduledTask && ElevationHelper.IsElevated &&
+            WindowsStartup.Apply(AutostartMode.Elevated))
+        {
+            facts = WindowsStartup.GetFacts();
+        }
+
+        AdoptFromSystem(facts);
     }
 
-    private void SetAutostart(AutostartMode mode)
+    /// <summary>
+    /// Applies both switches: the compatibility flag, which makes manual starts ask for
+    /// administrator rights, and the autostart mechanism that fits them.
+    /// </summary>
+    private void ApplyStartup(bool runAsAdministrator, bool startWithWindows)
     {
+        AutostartMode mode = startWithWindows
+            ? (runAsAdministrator ? AutostartMode.Elevated : AutostartMode.Standard)
+            : AutostartMode.Disabled;
+
         AutostartFacts before = WindowsStartup.GetFacts();
+        bool mechanismInPlace = AutostartStatus.ResolveMode(before) == mode &&
+                                AutostartStatus.ResolveState(before) != AutostartState.Conflicting;
 
-        if (AutostartStatus.ResolveMode(before) == mode && AutostartStatus.ResolveState(before) != AutostartState.Conflicting)
-        {
-            PublishAutostartState(before);
-            return;
-        }
+        bool applied = mechanismInPlace || WindowsStartup.Apply(mode);
 
-        if (!WindowsStartup.Apply(mode))
+        if (!applied)
         {
             MessageBox.Show(
-                mode == AutostartMode.Elevated
-                    ? "Die geplante Aufgabe konnte nicht angelegt werden.\n\n" +
-                      (ScheduledTaskAutostart.LastError ?? "Ursache unbekannt.") +
-                      "\n\nDer bisherige Autostart bleibt bestehen. Details stehen in der Protokolldatei im Datenordner."
-                    : "Der Autostart konnte nicht geändert werden.\n\n" +
-                      (ScheduledTaskAutostart.LastError ?? "Details stehen in der Protokolldatei im Datenordner."),
+                (mode == AutostartMode.Elevated
+                    ? "Die geplante Aufgabe für den Autostart mit Administratorrechten konnte nicht angelegt werden."
+                    : "Der Autostart konnte nicht geändert werden.") +
+                "\n\n" + (ScheduledTaskAutostart.LastError ?? "Ursache unbekannt.") +
+                "\n\nDie bisherigen Einstellungen bleiben bestehen. Details stehen in der Protokolldatei im Datenordner.",
                 "PowerPlugin",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
         }
 
-        // The compatibility flag would keep breaking a plain Run entry, and with the scheduled
-        // task it is pointless - the task provides the elevation itself.
-        if (mode == AutostartMode.Elevated && WindowsStartup.HasRunAsAdminFlag())
+        if (runAsAdministrator)
         {
-            WindowsStartup.RemoveRunAsAdminFlag();
+            // Only once the task is in place: next to a plain Run entry the flag would make
+            // Windows skip that entry and break an autostart that works today. A flag the user
+            // already had is never taken away.
+            if (!before.RunAsAdminFlagSet && (mode != AutostartMode.Elevated || applied))
+            {
+                WindowsStartup.SetRunAsAdminFlag(true);
+            }
+        }
+        else if (before.RunAsAdminFlagSet)
+        {
+            WindowsStartup.SetRunAsAdminFlag(false);
         }
 
-        AutostartFacts after = WindowsStartup.GetFacts();
-        AutostartMode applied = AutostartStatus.ResolveMode(after);
+        AdoptFromSystem(WindowsStartup.GetFacts());
+    }
 
-        _settings.StartWithWindows = applied != AutostartMode.Disabled;
-        _settings.StartWithWindowsElevated = applied == AutostartMode.Elevated;
-        _settingsStore.Save(_settings);
+    /// <summary>Shows what is actually in effect, which after a failure is not what was asked for.</summary>
+    private void AdoptFromSystem(AutostartFacts facts)
+    {
+        (bool admin, bool autostart) = AutostartStatus.ReadIntent(facts);
+
+        if (admin != _settings.RunAsAdministrator || autostart != _settings.StartWithWindows)
+        {
+            _settings.RunAsAdministrator = admin;
+            _settings.StartWithWindows = autostart;
+            _settingsStore.Save(_settings);
+        }
+
         _window.ApplySettings(_settings);
-
-        PublishAutostartState(after);
+        PublishAutostartState(facts);
     }
 
     private void PublishAutostartState(AutostartFacts facts)
@@ -356,6 +415,54 @@ internal sealed class AppController : IDisposable
         }
     }
 
+    /// <summary>
+    /// Writes every sensor the library sees, together with what PowerPlugin makes of it, to a text
+    /// file in the data folder and opens it. When a reading is missing although PawnIO and
+    /// administrator rights are both there, this shows the sensor names actually present.
+    /// </summary>
+    private void CreateSensorReport()
+    {
+        string path = Path.Combine(AppPaths.DataDirectory, "sensorbericht.txt");
+
+        try
+        {
+            string access = _monitor.CpuSensorAccess switch
+            {
+                SensorAccessState.Available => "gemessen",
+                SensorAccessState.NeedsAdministrator => "geschätzt - Administratorrechte fehlen",
+                SensorAccessState.NeedsHelperDriver => "geschätzt - PawnIO nicht installiert",
+                _ => "geschätzt - kein Package-Sensor gefunden",
+            };
+
+            var header = new System.Text.StringBuilder()
+                .AppendLine("PowerPlugin - Sensorbericht")
+                .AppendLine($"Erstellt:            {DateTime.Now:yyyy-MM-dd HH:mm:ss}")
+                .AppendLine($"Windows:             {Environment.OSVersion.VersionString}")
+                .AppendLine($"Administratorrechte: {(ElevationHelper.IsElevated ? "ja" : "nein")}")
+                .AppendLine($"PawnIO:              {(HelperDriver.IsInstalled ? "installiert, Version " + (HelperDriver.InstalledVersion ?? "unbekannt") : "nicht installiert")}")
+                .AppendLine($"CPU-Leistung:        {access}")
+                .AppendLine($"Gesuchte CPU-Sensoren:        {string.Join(", ", LibreHardwareTelemetryProvider.CpuPackageSensorNames)}")
+                .AppendLine($"Gesuchte Grafikkarten-Sensoren: {string.Join(", ", LibreHardwareTelemetryProvider.GpuPowerSensorNames)}")
+                .AppendLine()
+                .AppendLine("Alle Sensoren, die die Sensorbibliothek sieht (Typ, Name, Wert):")
+                .AppendLine();
+
+            File.WriteAllText(path, header + _provider.BuildSensorReport());
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            DiagnosticsLog.Write($"Sensorbericht geschrieben: {path}");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                                              or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            DiagnosticsLog.Write("Sensorbericht", exception);
+            MessageBox.Show(
+                $"Der Sensorbericht konnte nicht erstellt werden:\n\n{exception.Message}",
+                "PowerPlugin",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
     private static void OpenDataFolder()
     {
         try
@@ -378,7 +485,8 @@ internal sealed class AppController : IDisposable
         // Buffered energy has to reach the database before the second instance opens it.
         _monitor.FlushToDisk();
 
-        if (ElevationHelper.TryRestartElevated())
+        // The new instance waits until this one has let go of the single instance mutex.
+        if (ElevationHelper.TryRestartElevated($"{Program.RestartedArgument} {Program.ShowWindowArgument}"))
         {
             Shutdown();
         }

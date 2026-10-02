@@ -9,6 +9,7 @@ using PowerPlugin.Core.Configuration;
 using PowerPlugin.Core.Hardware;
 using PowerPlugin.Core.Model;
 using PowerPlugin.Core.Statistics;
+using PowerPlugin.Windows;
 
 namespace PowerPlugin.App.Ui;
 
@@ -36,6 +37,7 @@ internal sealed class MainWindow : Window
     private readonly SolidColorBrush _currentWattsBrush = new(Theme.Text);
 
     private SensorAccessState _cpuSensorAccess = SensorAccessState.Unavailable;
+    private Dictionary<string, string> _dedicatedGpus = new(StringComparer.Ordinal);
 
     private AppSettings _appSettings;
     private string _hardwareSummary = "Hardware wird erkannt …";
@@ -44,7 +46,11 @@ internal sealed class MainWindow : Window
     {
         _appSettings = settings;
 
-        Title = "PowerPlugin - Stromverbrauch";
+        // The usual Windows convention, so it is visible at a glance whether this instance runs
+        // elevated - which the CPU sensors need.
+        Title = ElevationHelper.IsElevated
+            ? "PowerPlugin - Stromverbrauch (Administrator)"
+            : "PowerPlugin - Stromverbrauch";
         Width = 1080;
         Height = 720;
         MinWidth = 900;
@@ -62,6 +68,7 @@ internal sealed class MainWindow : Window
         _settings.ResetHistoryRequested += (_, _) => ResetHistoryRequested?.Invoke(this, EventArgs.Empty);
         _settings.OpenDataFolderRequested += (_, _) => OpenDataFolderRequested?.Invoke(this, EventArgs.Empty);
         _settings.RestartElevatedRequested += (_, _) => RestartElevatedRequested?.Invoke(this, EventArgs.Empty);
+        _settings.SensorReportRequested += (_, _) => SensorReportRequested?.Invoke(this, EventArgs.Empty);
 
         _currentWatts = new TextBlock
         {
@@ -97,6 +104,8 @@ internal sealed class MainWindow : Window
     public event EventHandler? OpenDataFolderRequested;
 
     public event EventHandler? RestartElevatedRequested;
+
+    public event EventHandler? SensorReportRequested;
 
     /// <summary>Raised when the user closes the window while "close to tray" is disabled.</summary>
     public event EventHandler? ExitRequested;
@@ -276,8 +285,18 @@ internal sealed class MainWindow : Window
         _settings.Load(settings);
     }
 
-    public void SetHardwareSummary(HardwareInventory inventory) =>
+    public void SetHardwareSummary(HardwareInventory inventory)
+    {
         _hardwareSummary = DescribeHardware(inventory);
+
+        // Integrated graphics have no sensor of their own - their power is part of the CPU
+        // package - so only dedicated cards belong on the checklist.
+        _dedicatedGpus = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (GpuInfo gpu in inventory.Gpus.Where(g => !g.IsIntegrated))
+        {
+            _dedicatedGpus.TryAdd(gpu.Key, gpu.Name);
+        }
+    }
 
     public void SetAutostartStatus(AutostartFacts facts) => _settings.SetAutostartStatus(facts);
 
@@ -310,8 +329,11 @@ internal sealed class MainWindow : Window
             ? $"Gesamtaufnahme an der Steckdose · davon {Formatting.Watts(snapshot.ConversionLossWatts)} Netzteilverluste"
             : "Gesamtaufnahme des Systems";
 
+        string confidence = snapshot.Confidence.ToDisplayString();
+        string? cause = ShortCause(snapshot.Confidence, _cpuSensorAccess);
+
         _confidenceBadge.Content = Theme.Badge(
-            snapshot.Confidence.ToDisplayString(),
+            cause is null ? confidence : $"{confidence} · {cause}",
             snapshot.Confidence switch
             {
                 MeasurementConfidence.High => Theme.Good,
@@ -326,6 +348,10 @@ internal sealed class MainWindow : Window
             measured > 0 ? Theme.Accent : Theme.TextMuted);
 
         _overview.UpdateLive(snapshot, liveValues, _hardwareSummary);
+
+        _settings.SetGpuSensors(_dedicatedGpus
+            .Select(gpu => (gpu.Value, snapshot.Components.Any(c => c.Key == gpu.Key && c.Source.IsMeasured())))
+            .ToList());
 
         _statusText.Text =
             $"Letzte Messung {snapshot.Timestamp:HH:mm:ss} · Intervall {_appSettings.SampleInterval.TotalSeconds:0.#} s · " +
@@ -365,6 +391,27 @@ internal sealed class MainWindow : Window
         // Keep the process and the measurement running; the window only disappears.
         e.Cancel = true;
         Hide();
+    }
+
+    /// <summary>
+    /// The missing piece in a few words, so the badge itself says why the total is only a rough
+    /// estimate - hidden in the tooltip alone it went unnoticed.
+    /// </summary>
+    private static string? ShortCause(MeasurementConfidence confidence, SensorAccessState cpu)
+    {
+        if (confidence != MeasurementConfidence.Low)
+        {
+            return null;
+        }
+
+        return cpu switch
+        {
+            SensorAccessState.NeedsHelperDriver when !ElevationHelper.IsElevated => "PawnIO + Adminrechte fehlen",
+            SensorAccessState.NeedsHelperDriver => "PawnIO fehlt",
+            SensorAccessState.NeedsAdministrator => "Adminrechte fehlen",
+            SensorAccessState.Unavailable => "kein CPU-Sensor",
+            _ => "GPU ohne Sensor",
+        };
     }
 
     /// <summary>
