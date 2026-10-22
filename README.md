@@ -228,11 +228,21 @@ Wird sie abgelehnt, bleibt der bisherige Autostart bestehen, statt dass gar kein
 
 PowerPlugin aktualisiert sich selbst, nach demselben Verfahren wie Clavichat, aber ohne eigenen
 Server: Die Updates kommen aus den Releases dieses Repositorys auf GitHub. Kurz nach dem Start und
-danach einmal am Tag sucht es im Hintergrund nach einer neuen Fassung. Ist das Fenster offen,
-fragt ein Dialog nach; sonst meldet sich das Symbol im Infobereich, ein Klick darauf öffnet
-denselben Dialog. Er zeigt die Neuerungen, die Größe des Downloads und einen Link zu den
-Code-Änderungen. Unter *Einstellungen → Updates* lässt sich die Suche abschalten oder von Hand
-anstoßen. Nach einem Update zeigt PowerPlugin einmal „Neu in …“.
+danach einmal am Tag sucht es im Hintergrund nach einer neuen Fassung. Findet es eine, installiert
+es sie gleich und startet kurz neu, ohne das Fenster zu öffnen; eine Meldung im Infobereich sagt
+Bescheid, ein Klick darauf zeigt die Neuerungen. Bräuchte die Installation eine Rückfrage der
+Benutzerkontensteuerung (PowerPlugin läuft ohne Administratorrechte in `C:\Program Files`), wird
+das Update stattdessen angeboten, statt unvermittelt eine Rückfrage aufzuwerfen. Unter
+*Einstellungen → Updates* stehen die installierte Version, der Knopf „Nach Updates suchen“ und
+zwei Schalter: die Suche selbst und das automatische Installieren. Ist Letzteres aus, fragt ein
+Dialog mit Neuerungen, Download-Größe und Link zu den Code-Änderungen.
+
+Kleine Updates wie bei Clavichat: Zu jedem Release legt der Workflow neben dem vollen Paket ein
+kleines an, das nur die Dateien enthält, die sich gegenüber dem vorigen Release geändert haben
+(per SHA-256 verglichen), dazu die Liste der wegfallenden Dateien. Eine installierte Fassung genau
+dieses Vorgängers lädt nur das – meist wenige hundert KB statt rund 8 MB. Daraus und aus der
+installierten Fassung entsteht der neue Programmordner. Passt etwas nicht, nimmt PowerPlugin das
+volle Paket.
 
 Sicherheit: Die Update-Liste (`update.json` im neuesten Release) ist mit Ed25519 signiert. Den
 privaten Schlüssel kennt nur der Release-Workflow, als Secret `UPDATE_SIGNING_KEY`; in der App
@@ -240,8 +250,8 @@ steht nur der öffentliche. Die Liste nennt Größe und SHA-256 des Pakets. Inst
 wenn Signatur und Prüfsumme stimmen und die Fassung neuer ist. Wer ohne diesen Schlüssel an das
 Repository oder die Downloads kommt, kann Updates zurückhalten, aber kein Programm unterschieben.
 
-Ablauf: Das Paket ist ein Zip der veröffentlichten Anwendung. PowerPlugin lädt es nach `%TEMP%`,
-prüft es und entpackt es. Dann wartet ein kleines PowerShell-Skript, bis PowerPlugin beendet ist,
+Ablauf: Das Paket ist ein Zip der veröffentlichten Anwendung (oder das kleine Update). PowerPlugin
+lädt es nach `%TEMP%`, prüft es und entpackt es. Dann wartet ein kleines PowerShell-Skript, bis PowerPlugin beendet ist,
 und tauscht den Programmordner aus. Der alte Ordner wird nur umbenannt und kommt zurück, falls der
 neue nicht an seinen Platz kommt. Danach startet PowerPlugin mit offenem Fenster neu. In
 `C:\Program Files` braucht der Tausch Administratorrechte: Ein erhöht laufendes PowerPlugin gibt
@@ -257,8 +267,9 @@ Ein Build aus `bin\Debug` oder `bin\Release` aktualisiert sich nicht selbst.
    zum Text des Releases und zu den Neuerungen im Update-Dialog (höchstens 12).
 3. Auf `main` pushen.
 
-`.github/workflows/release.yml` testet und baut dann auf GitHub, signiert die Update-Liste und
-legt das Release `vx.y.z` mit Paket und `update.json` an. Ab da bieten alle installierten
+`.github/workflows/release.yml` testet und baut dann auf GitHub, erstellt das kleine Update
+gegenüber dem letzten Release, signiert die Update-Liste und legt das Release `vx.y.z` mit
+vollem Paket, kleinem Update und `update.json` an. Ab da bieten alle installierten
 PowerPlugins das Update an. Von Hand geht es unter *Actions → Release → Run workflow*.
 
 Einmalig einzurichten ist der Signierschlüssel:

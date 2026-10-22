@@ -39,6 +39,7 @@ internal sealed class SettingsPage : Grid
     private readonly TextBlock _autostartStatus;
     private readonly CheckBox _closeToTray;
     private readonly CheckBox _checkForUpdates;
+    private readonly CheckBox _installUpdatesAutomatically;
     private readonly UpdatePanel _updatePanel = new(inDialog: false);
     private readonly CheckBox _startMinimized;
     private readonly RadioButton _iconSubtle;
@@ -114,7 +115,9 @@ internal sealed class SettingsPage : Grid
         _autostartStatus.Margin = new Thickness(0, 6, 0, 4);
         _closeToTray = Theme.CheckBox("Fenster schließen minimiert in den Infobereich", true);
 
-        _checkForUpdates = Theme.CheckBox("Beim Start und einmal am Tag im Hintergrund nach Updates suchen und Bescheid geben", true);
+        _checkForUpdates = Theme.CheckBox("Beim Start und einmal am Tag im Hintergrund nach Updates suchen", true);
+        _installUpdatesAutomatically = Theme.CheckBox(
+            "Gefundene Updates gleich installieren - PowerPlugin startet dafür kurz neu", true);
         _updatePanel.InstallRequested += (_, _) => UpdateInstallRequested?.Invoke(this, EventArgs.Empty);
         _updatePanel.CheckRequested += (_, _) => UpdateCheckRequested?.Invoke(this, EventArgs.Empty);
         _startMinimized = Theme.CheckBox("Beim Start nur das Taskleistensymbol anzeigen", true);
@@ -368,6 +371,7 @@ internal sealed class SettingsPage : Grid
         _runAsAdmin.IsChecked = _settings.RunAsAdministrator;
         _closeToTray.IsChecked = _settings.CloseToTray;
         _checkForUpdates.IsChecked = _settings.CheckForUpdates;
+        _installUpdatesAutomatically.IsChecked = _settings.InstallUpdatesAutomatically;
         _startMinimized.IsChecked = _settings.StartMinimized;
         _iconSubtle.IsChecked = _settings.AppIcon == AppIconStyle.Subtle;
         _iconBold.IsChecked = _settings.AppIcon == AppIconStyle.Bold;
@@ -547,8 +551,11 @@ internal sealed class SettingsPage : Grid
 
         _checkForUpdates.Margin = new Thickness(0, 16, 0, 0);
         updates.Children.Add(_checkForUpdates);
+        _installUpdatesAutomatically.Margin = new Thickness(0, 6, 0, 0);
+        updates.Children.Add(_installUpdatesAutomatically);
 
         TextBlock updateHint = Theme.Muted(
+            "Wie bei Clavichat: Meist genügt ein kleines Update mit nur den geänderten Dateien. " +
             "Installiert wird nur, was mit dem Schlüssel des Herausgebers signiert ist und dessen " +
             "Prüfsumme stimmt. Im Ordner C:\\Program Files braucht das Update Administratorrechte - " +
             "läuft PowerPlugin ohne, fragt Windows einmal nach. Einstellungen und Verlauf bleiben erhalten.", 11);
@@ -761,6 +768,7 @@ internal sealed class SettingsPage : Grid
         updated.RunAsAdministrator = _runAsAdmin.IsChecked == true;
         updated.CloseToTray = _closeToTray.IsChecked == true;
         updated.CheckForUpdates = _checkForUpdates.IsChecked == true;
+        updated.InstallUpdatesAutomatically = _installUpdatesAutomatically.IsChecked == true;
         updated.StartMinimized = _startMinimized.IsChecked == true;
         updated.AppIcon = _iconBold.IsChecked == true ? AppIconStyle.Bold : AppIconStyle.Subtle;
 

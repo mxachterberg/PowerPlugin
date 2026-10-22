@@ -70,7 +70,7 @@ internal sealed class UpdatePanel : StackPanel
 
         if (latest is not null && state.CanInstall && state.Status is UpdateStatus.Available or UpdateStatus.Error)
         {
-            Button install = Theme.Button($"Jetzt aktualisieren ({FormatSize(latest!.Package.Size)})", primary: true);
+            Button install = Theme.Button($"Jetzt aktualisieren ({FormatSize(state.DownloadSize)})", primary: true);
             install.Margin = new Thickness(0, 0, 10, 0);
             install.Click += (_, _) => InstallRequested?.Invoke(this, EventArgs.Empty);
             actions.Children.Add(install);
@@ -108,7 +108,8 @@ internal sealed class UpdatePanel : StackPanel
             UpdateStatus.Available when !state.CanInstall =>
                 $"PowerPlugin {latest} ist da - dieser Entwicklungs-Build installiert es nicht selbst.",
             UpdateStatus.Available =>
-                $"PowerPlugin {latest} ist da - du hast {state.CurrentVersion}.",
+                $"PowerPlugin {latest} ist da - du hast {state.CurrentVersion}." +
+                (state.IsSmall ? " Kleines Update: Nur die geänderten Dateien werden geladen." : string.Empty),
             UpdateStatus.Downloading =>
                 $"PowerPlugin {latest} wird geladen … {Math.Floor(state.Progress * 100):0} %",
             UpdateStatus.Installing =>

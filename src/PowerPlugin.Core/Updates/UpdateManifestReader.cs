@@ -127,14 +127,20 @@ public static partial class UpdateManifestReader
             }
 
             if (!root.TryGetProperty("files", out JsonElement files) || files.ValueKind != JsonValueKind.Object ||
-                !files.TryGetProperty("zip", out JsonElement zip) || zip.ValueKind != JsonValueKind.Object ||
-                String(zip, "name") is not { } name || !PackageName().IsMatch(name) ||
-                String(zip, "sha256") is not { } sha256 || !Sha256Hex().IsMatch(sha256) ||
-                !zip.TryGetProperty("size", out JsonElement sizeElement) ||
-                sizeElement.ValueKind != JsonValueKind.Number ||
-                !sizeElement.TryGetInt64(out long size) || size <= 0 || size > MaxPackageSize)
+                !files.TryGetProperty("zip", out JsonElement zip) || ReadFile(zip) is not { } package)
             {
                 throw new UpdateException("Für diese Fassung gibt es keine passende Datei.");
+            }
+
+            // The small update: only the files that changed since one particular version. Missing
+            // or implausible, it is simply not offered - the full package always works.
+            UpdateDelta? delta = null;
+            if (files.TryGetProperty("delta", out JsonElement deltaElement) &&
+                ReadFile(deltaElement) is { } deltaFile &&
+                String(deltaElement, "from") is { } from && AppVersion.IsValid(from) &&
+                AppVersion.IsNewer(version, from))
+            {
+                delta = new UpdateDelta(deltaFile, from);
             }
 
             var notes = new List<string>();
@@ -154,12 +160,27 @@ public static partial class UpdateManifestReader
                 }
             }
 
-            return new UpdateManifest(version, String(root, "date") ?? string.Empty, notes, new UpdateFile(name, size, sha256));
+            return new UpdateManifest(version, String(root, "date") ?? string.Empty, notes, package) { Delta = delta };
         }
         catch (JsonException exception)
         {
             throw new UpdateException("Die Update-Liste ist ungültig.", exception);
         }
+    }
+
+    private static UpdateFile? ReadFile(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object ||
+            String(element, "name") is not { } name || !PackageName().IsMatch(name) ||
+            String(element, "sha256") is not { } sha256 || !Sha256Hex().IsMatch(sha256) ||
+            !element.TryGetProperty("size", out JsonElement sizeElement) ||
+            sizeElement.ValueKind != JsonValueKind.Number ||
+            !sizeElement.TryGetInt64(out long size) || size <= 0 || size > MaxPackageSize)
+        {
+            return null;
+        }
+
+        return new UpdateFile(name, size, sha256);
     }
 
     private static string? String(JsonElement element, string property) =>

@@ -98,6 +98,16 @@ const manifest = {
   files: { zip: { name: zipName, size: zip.length, sha256: sha256(zip) } }
 };
 
+// Das kleine Update aus build-release.ps1 -Previous, falls es eins gibt.
+const deltaName = fs.readdirSync(path.join(ROOT, 'dist'))
+  .find((n) => n.startsWith('PowerPlugin-' + version + '-delta-') && n.endsWith('.zip'));
+if (deltaName) {
+  const from = deltaName.slice(('PowerPlugin-' + version + '-delta-').length, -'.zip'.length);
+  if (!/^\d{1,4}\.\d{1,4}\.\d{1,6}$/.test(from)) fail('Unbekannter Vorgänger im Namen ' + deltaName + '.');
+  const delta = fs.readFileSync(path.join(ROOT, 'dist', deltaName));
+  manifest.files.delta = { name: deltaName, size: delta.length, sha256: sha256(delta), from: from };
+}
+
 const data = JSON.stringify(manifest);
 const sig = crypto.sign(null, Buffer.from(data, 'utf8'), crypto.createPrivateKey(pem)).toString('base64');
 if (!crypto.verify(null, Buffer.from(data, 'utf8'), crypto.createPublicKey(pem), Buffer.from(sig, 'base64'))) fail('Signatur lässt sich nicht prüfen.');
@@ -109,12 +119,15 @@ const dest = path.join(target, zipName);
 if (!(fs.existsSync(dest) && sha256(fs.readFileSync(dest)) === manifest.files.zip.sha256)) fs.copyFileSync(zipSrc, dest);
 fs.writeFileSync(path.join(target, 'update.json'), JSON.stringify({ data: data, sig: sig }, null, 1) + '\n');
 
+if (deltaName) fs.copyFileSync(path.join(ROOT, 'dist', deltaName), path.join(target, deltaName));
+const keep = new Set([zipName, deltaName]);
 for (const name of fs.readdirSync(target)) {
-  if (/^PowerPlugin-.*\.zip$/.test(name) && name !== zipName) {
+  if (/^PowerPlugin-.*\.zip$/.test(name) && !keep.has(name)) {
     fs.rmSync(path.join(target, name), { force: true });
     console.log('entfernt:', name);
   }
 }
 console.log('PowerPlugin ' + version + ' signiert und abgelegt in ' + target);
 console.log('  zip: ' + zipName + ' (' + (zip.length / 1048576).toFixed(1) + ' MB)');
+if (manifest.files.delta) console.log('  klein ab ' + manifest.files.delta.from + ': ' + deltaName + ' (' + (manifest.files.delta.size / 1048576).toFixed(2) + ' MB)');
 console.log('Neuerungen: ' + manifest.notes.length + ' Stichpunkte');

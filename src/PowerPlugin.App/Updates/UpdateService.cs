@@ -39,10 +39,16 @@ internal sealed record UpdateState(
     bool CanInstall)
 {
     public bool IsBusy => Status is UpdateStatus.Checking or UpdateStatus.Downloading or UpdateStatus.Installing;
+
+    /// <summary>The release has a small update that fits exactly the installed version.</summary>
+    public bool IsSmall => CanInstall && Latest?.Delta is { } delta && delta.From == CurrentVersion;
+
+    /// <summary>What the update will download: the small update if it fits, otherwise the full package.</summary>
+    public long DownloadSize => IsSmall ? Latest!.Delta!.File.Size : Latest?.Package.Size ?? 0;
 }
 
 /// <summary>What changed with the update that was just installed, for the "new in" dialog.</summary>
-internal sealed record InstalledUpdate(string From, string To, IReadOnlyList<string> Notes);
+internal sealed record InstalledUpdate(string From, string To, IReadOnlyList<string> Notes, bool Automatic = false);
 
 /// <summary>
 /// Updates, built like those of Clavichat: look for a new version shortly after the start (and
@@ -117,6 +123,13 @@ internal sealed class UpdateService : IDisposable
     public event EventHandler<UpdateManifest>? Found;
 
     public UpdateState State => _state;
+
+    /// <summary>
+    /// A version whose installation was just attempted and did not arrive. It is not installed
+    /// automatically again in this session - otherwise a broken update would restart PowerPlugin
+    /// over and over.
+    /// </summary>
+    public string? FailedVersion { get; private set; }
 
     /// <summary>
     /// A build straight out of the source tree replaces nothing - only the published program
@@ -203,7 +216,11 @@ internal sealed class UpdateService : IDisposable
     /// Returns true when that script runs - the caller then has to end the program, which is what
     /// the script waits for.
     /// </summary>
-    public async Task<bool> InstallAsync()
+    /// <param name="automatic">
+    /// Installed without being asked: PowerPlugin comes back the way it was, without opening its
+    /// window, and announces the update in the notification area instead.
+    /// </param>
+    public async Task<bool> InstallAsync(bool automatic = false)
     {
         if (!IsSupported || _disposed || _state.Status is UpdateStatus.Downloading or UpdateStatus.Installing)
         {
@@ -230,13 +247,36 @@ internal sealed class UpdateService : IDisposable
             }
 
             Set(_state with { Status = UpdateStatus.Downloading, Latest = manifest, Progress = 0, Error = null });
-            string package = await DownloadAsync(manifest.Package, manifest.Version);
 
-            Set(_state with { Status = UpdateStatus.Installing, Progress = 1 });
-            string staging = await Task.Run(() => Unpack(package, manifest.Version));
+            string? staging = null;
 
-            WritePending(new InstalledUpdate(_state.CurrentVersion, manifest.Version, manifest.Notes));
-            StartSwap(staging, manifest.Version);
+            // The small update first, like Clavichat's: only the changed files. If anything about
+            // it does not fit, the full package takes over.
+            if (_state.IsSmall)
+            {
+                try
+                {
+                    string delta = await DownloadAsync(manifest.Delta!.File, manifest.Version);
+                    Set(_state with { Status = UpdateStatus.Installing, Progress = 1 });
+                    staging = await Task.Run(() => ApplyDelta(delta, manifest.Version));
+                    DiagnosticsLog.Write($"Kleines Update auf {manifest.Version} vorbereitet.");
+                }
+                catch (Exception exception) when (IsExpected(exception))
+                {
+                    DiagnosticsLog.Write("Kleines Update - es folgt das volle Paket", exception);
+                    Set(_state with { Status = UpdateStatus.Downloading, Progress = 0 });
+                }
+            }
+
+            if (staging is null)
+            {
+                string package = await DownloadAsync(manifest.Package, manifest.Version);
+                Set(_state with { Status = UpdateStatus.Installing, Progress = 1 });
+                staging = await Task.Run(() => Unpack(package, manifest.Version));
+            }
+
+            WritePending(new InstalledUpdate(_state.CurrentVersion, manifest.Version, manifest.Notes, automatic));
+            StartSwap(staging, manifest.Version, showWindow: !automatic);
             return true;
         }
         catch (Exception exception) when (IsExpected(exception) || exception is System.ComponentModel.Win32Exception)
@@ -266,6 +306,7 @@ internal sealed class UpdateService : IDisposable
 
             if (update is null || update.To != _state.CurrentVersion)
             {
+                FailedVersion = update?.To;
                 DiagnosticsLog.Write($"Update auf {update?.To} ist nicht angekommen; es läuft {_state.CurrentVersion}.");
                 return null;
             }
@@ -402,11 +443,130 @@ internal sealed class UpdateService : IDisposable
     }
 
     /// <summary>
+    /// The small update: the installed program, copied, with the changed files of the delta on
+    /// top and the files it drops removed. The result goes through the same swap as a full package.
+    /// </summary>
+    private static string ApplyDelta(string deltaZip, string version)
+    {
+        string staging = Path.Combine(WorkDirectory, version);
+        string installed = AppPaths.ApplicationDirectory.TrimEnd(Path.DirectorySeparatorChar);
+        string root = Path.GetFullPath(staging) + Path.DirectorySeparatorChar;
+
+        try
+        {
+            if (Directory.Exists(staging))
+            {
+                Directory.Delete(staging, recursive: true);
+            }
+
+            // The data folder of a portable installation is carried over by the swap itself.
+            CopyDirectory(installed, staging, skipTopLevel: "Data");
+
+            DeltaDescription? description = null;
+
+            using (ZipArchive archive = ZipFile.OpenRead(deltaZip))
+            {
+                foreach (ZipArchiveEntry entry in archive.Entries)
+                {
+                    if (entry.FullName == "delta.json")
+                    {
+                        using var reader = new StreamReader(entry.Open());
+                        description = JsonSerializer.Deserialize<DeltaDescription>(
+                            reader.ReadToEnd(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        continue;
+                    }
+
+                    string target = Inside(root, entry.FullName);
+                    if (entry.FullName.EndsWith('/'))
+                    {
+                        Directory.CreateDirectory(target);
+                        continue;
+                    }
+
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    entry.ExtractToFile(target, overwrite: true);
+                }
+            }
+
+            if (description is null || description.To != version)
+            {
+                throw new UpdateException("Das kleine Update passt nicht zu dieser Fassung.");
+            }
+
+            foreach (string removed in description.Removed ?? [])
+            {
+                string target = Inside(root, removed);
+                if (File.Exists(target))
+                {
+                    File.Delete(target);
+                }
+            }
+        }
+        catch (JsonException exception)
+        {
+            throw new UpdateException("Das kleine Update ist beschädigt.", exception);
+        }
+        finally
+        {
+            TryDelete(deltaZip);
+        }
+
+        string executable = Path.GetFileName(WindowsStartup.GetExecutablePath() ?? "PowerPlugin.exe");
+        if (!File.Exists(Path.Combine(staging, executable)))
+        {
+            throw new UpdateException($"Nach dem kleinen Update fehlt {executable}.");
+        }
+
+        return staging;
+    }
+
+    /// <summary>A path from the delta, refused if it would land outside the folder.</summary>
+    private static string Inside(string root, string relative)
+    {
+        string target = Path.GetFullPath(Path.Combine(root, relative));
+        if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new UpdateException("Das kleine Update enthält einen ungültigen Pfad.");
+        }
+
+        return target;
+    }
+
+    private static void CopyDirectory(string source, string target, string? skipTopLevel)
+    {
+        Directory.CreateDirectory(target);
+
+        foreach (string file in Directory.GetFiles(source))
+        {
+            File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: true);
+        }
+
+        foreach (string directory in Directory.GetDirectories(source))
+        {
+            string name = Path.GetFileName(directory);
+            if (!string.Equals(name, skipTopLevel, StringComparison.OrdinalIgnoreCase))
+            {
+                CopyDirectory(directory, Path.Combine(target, name), skipTopLevel: null);
+            }
+        }
+    }
+
+    /// <summary>The list inside a small update (written by scripts/build-release.ps1).</summary>
+    private sealed record DeltaDescription(string From, string To, IReadOnlyList<string>? Removed);
+
+    /// <summary>
+    /// Whether installing would bring up a consent prompt - in C:\Program Files, unless PowerPlugin
+    /// already runs elevated. An automatic update does not spring that on the user unasked.
+    /// </summary>
+    public static bool InstallNeedsElevation =>
+        !ElevationHelper.IsElevated && !CanReplace(AppPaths.ApplicationDirectory.TrimEnd(Path.DirectorySeparatorChar));
+
+    /// <summary>
     /// The running program holds its files open, so the swap happens after it has ended. The old
     /// folder is renamed rather than deleted first: if the new one cannot be put in place, the
     /// old one comes back. A portable installation keeps its data folder and marker file.
     /// </summary>
-    private static void StartSwap(string staging, string version)
+    private static void StartSwap(string staging, string version, bool showWindow)
     {
         string executable = WindowsStartup.GetExecutablePath()
             ?? throw new UpdateException("Der Programmpfad ließ sich nicht ermitteln.");
@@ -447,7 +607,7 @@ internal sealed class UpdateService : IDisposable
             "}",
             "finally {",
             $"  Remove-Item -LiteralPath {Q(staging)} -Recurse -Force -ErrorAction SilentlyContinue",
-            $"  Start-Process -FilePath {Q(executable)} -ArgumentList '{Program.ShowWindowArgument}' -WorkingDirectory $dir",
+            $"  Start-Process -FilePath {Q(executable)}{(showWindow ? $" -ArgumentList '{Program.ShowWindowArgument}'" : string.Empty)} -WorkingDirectory $dir",
             "  " + Log("PowerPlugin gestartet"),
             "}");
 

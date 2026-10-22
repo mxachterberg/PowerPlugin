@@ -109,9 +109,20 @@ internal sealed class AppController : IDisposable
 
         if (_updates.TakeInstalledUpdate() is { } installed)
         {
-            // Once the window stands - the update restarts the program with it open.
-            _dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
-                ThemedDialog.WhatsNew(installed, _window).ShowDialog());
+            if (installed.Automatic)
+            {
+                // Updated in the background: a note in the notification area, the news on a click.
+                _tray.ShowMessage(
+                    $"PowerPlugin ist auf {installed.To} aktualisiert",
+                    "Klicken, um zu sehen, was neu ist.",
+                    () => _dispatcher.BeginInvoke(() => ThemedDialog.WhatsNew(installed, _window).Show()));
+            }
+            else
+            {
+                // Once the window stands - the update restarts the program with it open.
+                _dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
+                    ThemedDialog.WhatsNew(installed, _window).ShowDialog());
+            }
         }
 
         DiagnosticsLog.Write($"PowerPlugin {_updates.State.CurrentVersion} gestartet.");
@@ -512,6 +523,16 @@ internal sealed class AppController : IDisposable
             return;
         }
 
+        // Like Clavichat's start check, but without asking: found means installed. Only a consent
+        // prompt out of nowhere is avoided - then the update is offered as usual.
+        if (_settings.InstallUpdatesAutomatically && manifest.Version != _updates.FailedVersion &&
+            !UpdateService.InstallNeedsElevation)
+        {
+            DiagnosticsLog.Write($"Update auf {manifest.Version} wird automatisch installiert.");
+            InstallUpdate(automatic: true);
+            return;
+        }
+
         if (_window.IsVisible)
         {
             ShowUpdateDialog();
@@ -556,12 +577,12 @@ internal sealed class AppController : IDisposable
     }
 
     /// <summary>Downloads and checks the new version; once the swap script runs, the program ends for it.</summary>
-    private async void InstallUpdate()
+    private async void InstallUpdate(bool automatic = false)
     {
         // Buffered energy has to reach the database before the program goes away.
         _monitor.FlushToDisk();
 
-        if (await _updates.InstallAsync())
+        if (await _updates.InstallAsync(automatic))
         {
             Shutdown();
         }

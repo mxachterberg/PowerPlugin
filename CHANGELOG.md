@@ -13,6 +13,15 @@ Updates kommen jetzt direkt von GitHub.
 - **Updates ohne eigenen Server:** PowerPlugin lädt neue Fassungen aus den
   Releases auf GitHub. Die Update-Liste ist weiter mit Ed25519 signiert, jetzt
   mit einem eigenen Schlüssel für PowerPlugin.
+- **Automatisch aktualisieren:** Findet PowerPlugin beim Start (oder bei der
+  täglichen Suche) eine neue Fassung, installiert es sie gleich und startet
+  kurz neu – ohne Fenster, mit einer Meldung im Infobereich. Abschaltbar unter
+  Einstellungen → Updates; dann fragt PowerPlugin wie bisher.
+- **Kleine Updates wie bei Clavichat:** Geladen werden nur die Dateien, die
+  sich seit der installierten Fassung geändert haben – meist wenige hundert
+  KB statt des ganzen Pakets.
+- **Version sichtbar:** oben rechts im Fenster und unter Einstellungen →
+  Updates, dort auch immer der Knopf „Nach Updates suchen“.
 - Diese Fassung einmal von Hand installieren (`install.ps1` oder das Zip aus
   dem Release). Danach kommen alle weiteren Updates von selbst.
 

@@ -84,6 +84,39 @@ public sealed class UpdateManifestTests
         Assert.Throws<UpdateException>(() => UpdateManifestReader.Verify(text, NodePublicKey));
     }
 
+    [Fact]
+    public void ASmallUpdateIsReadAlongsideTheFullPackage()
+    {
+        (string publicKey, Func<string, string> sign) = NewKey();
+
+        UpdateManifest manifest = UpdateManifestReader.Verify(sign(WithDelta("1.0.0")), publicKey);
+
+        Assert.NotNull(manifest.Delta);
+        Assert.Equal("1.0.0", manifest.Delta!.From);
+        Assert.Equal("PowerPlugin-1.0.1-delta-1.0.0.zip", manifest.Delta.File.Name);
+        Assert.Equal(4096, manifest.Delta.File.Size);
+        Assert.Equal("PowerPlugin-1.0.1-win-x64.zip", manifest.Package.Name);
+    }
+
+    [Theory]
+    [InlineData("1.0.1")]   // not older than the release itself
+    [InlineData("1.0")]     // no valid version
+    public void AnImplausibleSmallUpdateIsDroppedNotTheList(string from)
+    {
+        (string publicKey, Func<string, string> sign) = NewKey();
+
+        UpdateManifest manifest = UpdateManifestReader.Verify(sign(WithDelta(from)), publicKey);
+
+        Assert.Null(manifest.Delta);
+        Assert.Equal("1.0.1", manifest.Version);
+    }
+
+    private static string WithDelta(string from) => ValidData().Replace(
+        "}}}",
+        "},\"delta\":{\"name\":\"PowerPlugin-1.0.1-delta-1.0.0.zip\",\"size\":4096,\"sha256\":\"" +
+        new string('b', 64) + "\",\"from\":\"" + from + "\"}}}",
+        StringComparison.Ordinal);
+
     [Theory]
     [InlineData("1.0.1", "1.0.0", true)]
     [InlineData("1.10.0", "1.9.9", true)]

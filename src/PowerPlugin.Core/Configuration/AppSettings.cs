@@ -71,6 +71,9 @@ public sealed class AppSettings
     /// <summary>Look for a new version shortly after the start and once a day, and offer it.</summary>
     public bool CheckForUpdates { get; set; } = true;
 
+    /// <summary>Install a found update right away and restart, instead of asking first.</summary>
+    public bool InstallUpdatesAutomatically { get; set; } = true;
+
     /// <summary>
     /// Variant of the application icon. Only affects what the program sets at runtime; the icon
     /// of the executable itself is compiled in and always the default.
@@ -142,6 +145,7 @@ public sealed class AppSettings
         StartMinimized = StartMinimized,
         CloseToTray = CloseToTray,
         CheckForUpdates = CheckForUpdates,
+        InstallUpdatesAutomatically = InstallUpdatesAutomatically,
         AppIcon = AppIcon,
         TrayDisplay = TrayDisplay,
         TrayGreenThresholdWatts = TrayGreenThresholdWatts,
