@@ -85,7 +85,7 @@ internal sealed class UpdateService : IDisposable
     /// The publisher's key (Ed25519, SPKI/DER, Base64), printed by scripts/update-key.js. The
     /// private half is the repository secret UPDATE_SIGNING_KEY, used only by the release workflow.
     /// </summary>
-    public const string PublicKey = "MCowBQYDK2VwAyEAlGx6CauvrfaZJAUtLpqsw19KVCrB2hk2vpfBkKCYnwI=";
+    public const string PublicKey = "MCowBQYDK2VwAyEAtQqdU6sjfttiw5Wnfu29FaDBCoXvrLz9P96wOHQgIU8=";
 
     private static readonly TimeSpan StartDelay = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(24);
