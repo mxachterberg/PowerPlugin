@@ -425,6 +425,112 @@ internal static class Theme
 
     private static Color FromHex(string hex) => (Color)ColorConverter.ConvertFromString(hex)!;
 
+    // ---- Scroll bars ---------------------------------------------------------------------
+
+    /// <summary>Thumb at rest: a step above the hairlines, so it is found without shouting.</summary>
+    public static readonly Color ScrollThumb = FromHex("#2e2e33");
+
+    /// <summary>
+    /// The scroll bar of the app instead of the light system one: no arrow buttons, a thin bar on
+    /// a transparent track, lighter under the mouse and in the accent while dragged - square, like
+    /// everything else here. Registered as the implicit style for every scroll bar of the program.
+    /// <para>
+    /// Written as XAML and parsed at runtime: a scroll bar template needs a <c>Track</c> with
+    /// repeat buttons and a thumb set through its properties, which the factory API used for the
+    /// other templates cannot express. Parsing keeps the build free of XAML compilation all the same.
+    /// </para>
+    /// </summary>
+    public static Style ScrollBarStyle()
+    {
+        string thumb = ToHex(ScrollThumb);
+        string hover = ToHex(TextMuted);
+        string accent = ToHex(Accent);
+
+        string Template(bool vertical) => $"""
+            <ControlTemplate TargetType="ScrollBar">
+              <Border Background="Transparent">
+                <Track x:Name="PART_Track" IsDirectionReversed="{(vertical ? "True" : "False")}">
+                  <Track.DecreaseRepeatButton>
+                    <RepeatButton Style="{"{"}StaticResource PageButton{"}"}" Command="{"{"}x:Static ScrollBar.{(vertical ? "PageUpCommand" : "PageLeftCommand")}{"}"}" />
+                  </Track.DecreaseRepeatButton>
+                  <Track.Thumb>
+                    <Thumb Style="{"{"}StaticResource ScrollThumb{"}"}" />
+                  </Track.Thumb>
+                  <Track.IncreaseRepeatButton>
+                    <RepeatButton Style="{"{"}StaticResource PageButton{"}"}" Command="{"{"}x:Static ScrollBar.{(vertical ? "PageDownCommand" : "PageRightCommand")}{"}"}" />
+                  </Track.IncreaseRepeatButton>
+                </Track>
+              </Border>
+            </ControlTemplate>
+            """;
+
+        string xaml = $"""
+            <Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                   TargetType="ScrollBar">
+              <Style.Resources>
+                <Style x:Key="PageButton" TargetType="RepeatButton">
+                  <Setter Property="Focusable" Value="False" />
+                  <Setter Property="IsTabStop" Value="False" />
+                  <Setter Property="Template">
+                    <Setter.Value>
+                      <ControlTemplate TargetType="RepeatButton">
+                        <Border Background="Transparent" />
+                      </ControlTemplate>
+                    </Setter.Value>
+                  </Setter>
+                </Style>
+                <Style x:Key="ScrollThumb" TargetType="Thumb">
+                  <Setter Property="Focusable" Value="False" />
+                  <Setter Property="IsTabStop" Value="False" />
+                  <Setter Property="Template">
+                    <Setter.Value>
+                      <ControlTemplate TargetType="Thumb">
+                        <Border Background="Transparent">
+                          <Border x:Name="Bar" Background="{thumb}" Margin="3,2" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                          <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bar" Property="Background" Value="{hover}" />
+                          </Trigger>
+                          <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="Bar" Property="Background" Value="{accent}" />
+                          </Trigger>
+                        </ControlTemplate.Triggers>
+                      </ControlTemplate>
+                    </Setter.Value>
+                  </Setter>
+                </Style>
+              </Style.Resources>
+              <Setter Property="Background" Value="Transparent" />
+              <Setter Property="Width" Value="10" />
+              <Setter Property="MinWidth" Value="10" />
+              <Setter Property="Template">
+                <Setter.Value>
+            {Template(vertical: true)}
+                </Setter.Value>
+              </Setter>
+              <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                  <Setter Property="Width" Value="Auto" />
+                  <Setter Property="MinWidth" Value="0" />
+                  <Setter Property="Height" Value="10" />
+                  <Setter Property="MinHeight" Value="10" />
+                  <Setter Property="Template">
+                    <Setter.Value>
+            {Template(vertical: false)}
+                    </Setter.Value>
+                  </Setter>
+                </Trigger>
+              </Style.Triggers>
+            </Style>
+            """;
+
+        return (Style)System.Windows.Markup.XamlReader.Parse(xaml);
+    }
+
+    private static string ToHex(Color color) => $"#{color.R:x2}{color.G:x2}{color.B:x2}";
+
     private static T Frozen<T>(T freezable) where T : Freezable
     {
         freezable.Freeze();

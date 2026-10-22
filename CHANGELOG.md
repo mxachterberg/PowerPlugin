@@ -6,6 +6,13 @@ Abschnitt einer Version zum Text des GitHub-Releases
 nach einem Update zeigt (`scripts/publish-update.js`, höchstens 12
 Stichpunkte).
 
+## 1.0.2 – 22.10.2026
+
+Eigene Scrollleiste.
+
+- **Scrollleiste im Stil der App:** schmal, dunkel und ohne Pfeile statt der
+  hellen Windows-Leiste. Unter der Maus wird sie heller, beim Ziehen orange.
+
 ## 1.0.1 – 22.10.2026
 
 Updates kommen jetzt direkt von GitHub.

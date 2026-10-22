@@ -191,6 +191,17 @@ internal static class Program
             ShutdownMode = ShutdownMode.OnExplicitShutdown,
         };
 
+        // Every scroll bar of the program in the style of the app instead of the light system one.
+        // Should the style ever fail to load, the system scroll bar is the fallback, not a crash.
+        try
+        {
+            application.Resources.Add(typeof(System.Windows.Controls.Primitives.ScrollBar), Ui.Theme.ScrollBarStyle());
+        }
+        catch (Exception exception) when (exception is System.Windows.Markup.XamlParseException or InvalidOperationException)
+        {
+            DiagnosticsLog.Write("Stil der Scrollleiste", exception);
+        }
+
         AppController? controller = null;
 
         application.DispatcherUnhandledException += (_, e) =>
