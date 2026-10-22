@@ -6,7 +6,7 @@ Infobereich der Taskleiste an und führt daraus eine Verbrauchsstatistik.
 
 <table>
   <tr>
-    <td width="70%"><img src="docs/uebersicht.png" alt="PowerPlugin: Kennzahlen, Leistungsverteilung und erfasste Hardware"></td>
+    <td width="70%"><img src="docs/uebersicht-v1.0.2.png" alt="PowerPlugin: Kennzahlen, Leistungsverteilung und erfasste Hardware"></td>
     <td align="center">
       <img src="docs/infobereich.png" alt="Aktuelle Leistung als Zahl im Infobereich der Taskleiste"><br>
       <sub>Die aktuelle Leistung als Zahl im Infobereich, hier 249 W.</sub>
