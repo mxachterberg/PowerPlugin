@@ -541,6 +541,22 @@ internal sealed class SettingsPage : Grid
         sensors.Children.Add(reportHint);
         stack.Children.Add(Section("Sensorzugriff", sensors));
 
+        // ---- Updates -----------------------------------------------------------------
+        var updates = new StackPanel();
+        updates.Children.Add(_updatePanel);
+
+        _checkForUpdates.Margin = new Thickness(0, 16, 0, 0);
+        updates.Children.Add(_checkForUpdates);
+
+        TextBlock updateHint = Theme.Muted(
+            "Installiert wird nur, was mit dem Schlüssel des Herausgebers signiert ist und dessen " +
+            "Prüfsumme stimmt. Im Ordner C:\\Program Files braucht das Update Administratorrechte - " +
+            "läuft PowerPlugin ohne, fragt Windows einmal nach. Einstellungen und Verlauf bleiben erhalten.", 11);
+        updateHint.TextWrapping = TextWrapping.Wrap;
+        updateHint.Margin = new Thickness(0, 8, 0, 0);
+        updates.Children.Add(updateHint);
+        stack.Children.Add(Section("Updates", updates));
+
         // ---- Data --------------------------------------------------------------------
         var data = new StackPanel();
 
@@ -561,22 +577,6 @@ internal sealed class SettingsPage : Grid
 
         data.Children.Add(dataButtons);
         stack.Children.Add(Section("Daten", data));
-
-        // ---- Updates -----------------------------------------------------------------
-        var updates = new StackPanel();
-        updates.Children.Add(_updatePanel);
-
-        _checkForUpdates.Margin = new Thickness(0, 16, 0, 0);
-        updates.Children.Add(_checkForUpdates);
-
-        TextBlock updateHint = Theme.Muted(
-            "Installiert wird nur, was mit dem Schlüssel des Herausgebers signiert ist und dessen " +
-            "Prüfsumme stimmt. Im Ordner C:\\Program Files braucht das Update Administratorrechte - " +
-            "läuft PowerPlugin ohne, fragt Windows einmal nach. Einstellungen und Verlauf bleiben erhalten.", 11);
-        updateHint.TextWrapping = TextWrapping.Wrap;
-        updateHint.Margin = new Thickness(0, 8, 0, 0);
-        updates.Children.Add(updateHint);
-        stack.Children.Add(Section("Updates", updates));
 
         return stack;
     }

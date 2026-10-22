@@ -11,9 +11,9 @@ namespace PowerPlugin.Core.Updates;
 /// <para>
 /// The list is a JSON envelope <c>{ "data": "...", "sig": "..." }</c>: <c>data</c> is the list
 /// itself as a string, <c>sig</c> its Ed25519 signature in Base64. Only the publisher holds the
-/// private key; the web server only stores the files. A server taken over can therefore withhold
-/// updates but never smuggle in a program: whatever it serves has to carry a valid signature, and
-/// the package has to match the size and SHA-256 named in the signed list.
+/// private key; wherever the files are stored only stores them. Whoever takes over that place can
+/// therefore withhold updates but never smuggle in a program: whatever it serves has to carry a
+/// valid signature, and the package has to match the size and SHA-256 named in the signed list.
 /// </para>
 /// </summary>
 public static partial class UpdateManifestReader

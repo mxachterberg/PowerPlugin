@@ -179,7 +179,8 @@ internal sealed class MainWindow : Window
         brand.HorizontalAlignment = HorizontalAlignment.Right;
         titleStack.Children.Add(brand);
 
-        TextBlock claim = Theme.Muted("Leistungsaufnahme und Energiestatistik");
+        string version = Core.Updates.AppVersion.Of(System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version);
+        TextBlock claim = Theme.Muted($"Leistungsaufnahme und Energiestatistik · Version {version}");
         claim.HorizontalAlignment = HorizontalAlignment.Right;
         titleStack.Children.Add(claim);
 

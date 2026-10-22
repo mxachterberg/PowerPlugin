@@ -1,32 +1,27 @@
 /* ==========================================================================
-   PowerPlugin — Update veröffentlichen (nur beim Release)
-   Wie bei Clavichat: Signiert die Update-Liste mit dem privaten Schlüssel des
-   Herausgebers und legt sie samt Paket in den Zielordner, der dann auf den
-   Webserver kommt. Ältere Pakete dort werden entfernt.
+   PowerPlugin — Update-Liste signieren (beim Release)
+   Wie bei Clavichat: Signiert die Update-Liste (update.json) mit dem privaten
+   Schlüssel und legt sie samt Paket in den Zielordner. Den Rest erledigt der
+   Release-Workflow (.github/workflows/release.yml): Er ruft dieses Skript auf
+   und hängt beide Dateien an das GitHub-Release, von dem die App sie lädt.
 
-   Es ist derselbe Schlüssel wie für Clavichat (scripts/update-key.js dort,
-   %USERPROFILE%\.securecom\update-key.pem oder SECURECOM_UPDATE_KEY). Die
-   Liste nennt sich "powerplugin"; eine Liste von Clavichat nimmt PowerPlugin
-   nicht an und umgekehrt.
+   Schlüssel: im Workflow aus dem Secret UPDATE_SIGNING_KEY, lokal aus
+   %USERPROFILE%\.powerplugin\update-key.pem (scripts/update-key.js).
 
    Die Neuerungen im Popup stammen aus dem Abschnitt der Version in
    CHANGELOG.md (anderer Ort: POWERPLUGIN_CHANGELOG).
 
      powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
-     node scripts/publish-update.js "<Webroot>\downloads\powerplugin"
-
-   Danach hochladen – zuerst das Paket, zuletzt update.json:
-     powershell -ExecutionPolicy Bypass -File scripts\upload-update.ps1 -Dir "<Webroot>\downloads\powerplugin"
+     node scripts/publish-update.js dist\release
    ========================================================================== */
 'use strict';
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
-const KEY_FILE = process.env.SECURECOM_UPDATE_KEY || path.join(os.homedir(), '.securecom', 'update-key.pem');
+const { KEY_FILE, publicKeyOf } = require('./update-key');
 const SERVICE = path.join(ROOT, 'src', 'PowerPlugin.App', 'Updates', 'UpdateService.cs');
 
 // Die App zeigt höchstens 12 Stichpunkte zu je 400 Zeichen und schneidet hart
@@ -51,10 +46,6 @@ function shorten(text) {
 
 function sha256(bytes) {
   return crypto.createHash('sha256').update(bytes).digest('hex');
-}
-
-function publicKeyOf(privatePem) {
-  return crypto.createPublicKey(privatePem).export({ type: 'spki', format: 'der' }).toString('base64');
 }
 
 /** Stichpunkte der Version aus CHANGELOG.md, ohne Markdown. */
@@ -88,10 +79,14 @@ const zipName = 'PowerPlugin-' + version + '-win-x64.zip';
 const zipSrc = path.join(ROOT, 'dist', zipName);
 if (!fs.existsSync(zipSrc)) fail('Es fehlt ' + zipSrc + ' – erst scripts\\build-release.ps1.');
 
-if (!fs.existsSync(KEY_FILE)) fail('Kein privater Schlüssel unter ' + KEY_FILE + ' (Clavichat: node scripts/update-key.js).');
-const pem = fs.readFileSync(KEY_FILE, 'utf8');
+let pem = (process.env.UPDATE_SIGNING_KEY || '').trim();
+if (!pem) {
+  if (process.env.GITHUB_ACTIONS) fail('Das Secret UPDATE_SIGNING_KEY fehlt (Settings > Secrets and variables > Actions).');
+  if (!fs.existsSync(KEY_FILE)) fail('Kein privater Schlüssel unter ' + KEY_FILE + ' (node scripts/update-key.js).');
+  pem = fs.readFileSync(KEY_FILE, 'utf8');
+}
 if (!fs.readFileSync(SERVICE, 'utf8').includes(publicKeyOf(pem))) {
-  fail('Der öffentliche Schlüssel in UpdateService.cs passt nicht zu ' + KEY_FILE + '.');
+  fail('Der öffentliche Schlüssel in UpdateService.cs passt nicht zum privaten Schlüssel.');
 }
 
 const zip = fs.readFileSync(zipSrc);

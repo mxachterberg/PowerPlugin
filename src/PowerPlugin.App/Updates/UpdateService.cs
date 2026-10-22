@@ -35,7 +35,8 @@ internal sealed record UpdateState(
     UpdateManifest? Latest,
     double Progress,
     string? Error,
-    DateTimeOffset? LastChecked)
+    DateTimeOffset? LastChecked,
+    bool CanInstall)
 {
     public bool IsBusy => Status is UpdateStatus.Checking or UpdateStatus.Downloading or UpdateStatus.Installing;
 }
@@ -47,11 +48,14 @@ internal sealed record InstalledUpdate(string From, string To, IReadOnlyList<str
 /// Updates, built like those of Clavichat: look for a new version shortly after the start (and
 /// once a day, as PowerPlugin runs for days in the tray), offer it, download and install it.
 /// <para>
-/// Security: the update list is signed with Ed25519 (see <see cref="UpdateManifestReader"/>). Only
-/// the publisher has the private key - the same one that signs Clavichat's list, which names
-/// itself "clavichat" and is refused here. The list states size and SHA-256 of the package; it is
-/// installed only when signature and checksum match and the version is newer. A web server taken
-/// over can withhold updates, but not smuggle in a program.
+/// Source: the releases of the public GitHub repository. The release workflow builds the package,
+/// signs the update list and attaches both to the release.
+/// </para>
+/// <para>
+/// Security: the update list is signed with Ed25519 (see <see cref="UpdateManifestReader"/>), with
+/// a key of PowerPlugin's own. The list states size and SHA-256 of the package; it is installed
+/// only when signature and checksum match and the version is newer. Whoever gets hold of the
+/// repository or the download can withhold updates, but not smuggle in a program without the key.
 /// </para>
 /// <para>
 /// Installing: the package is a zip of the published application. It is unpacked to a temporary
@@ -63,12 +67,19 @@ internal sealed record InstalledUpdate(string From, string To, IReadOnlyList<str
 /// </summary>
 internal sealed class UpdateService : IDisposable
 {
-    public const string ManifestUrl = "https://achterberg.dev/downloads/powerplugin/update.json";
-
-    /// <summary>The publisher's key (Ed25519, SPKI/DER, Base64), printed by Clavichat's update-key.js.</summary>
-    public const string PublicKey = "MCowBQYDK2VwAyEAlGx6CauvrfaZJAUtLpqsw19KVCrB2hk2vpfBkKCYnwI=";
-
     public const string RepositoryUrl = "https://github.com/mxachterberg/PowerPlugin";
+
+    /// <summary>
+    /// The update list of the newest release. GitHub redirects "latest" to the newest published
+    /// release, so the list is always the current one without a server of our own.
+    /// </summary>
+    public const string ManifestUrl = RepositoryUrl + "/releases/latest/download/update.json";
+
+    /// <summary>
+    /// The publisher's key (Ed25519, SPKI/DER, Base64), printed by scripts/update-key.js. The
+    /// private half is the repository secret UPDATE_SIGNING_KEY, used only by the release workflow.
+    /// </summary>
+    public const string PublicKey = "MCowBQYDK2VwAyEAlGx6CauvrfaZJAUtLpqsw19KVCrB2hk2vpfBkKCYnwI=";
 
     private static readonly TimeSpan StartDelay = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(24);
@@ -84,7 +95,8 @@ internal sealed class UpdateService : IDisposable
     public UpdateService()
     {
         string version = AppVersion.Of(Assembly.GetEntryAssembly()?.GetName().Version);
-        _state = new UpdateState(IsSupported ? UpdateStatus.Idle : UpdateStatus.Unsupported, version, null, 0, null, null);
+        _state = new UpdateState(
+            IsSupported ? UpdateStatus.Idle : UpdateStatus.Unsupported, version, null, 0, null, null, IsSupported);
 
         _http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PowerPlugin", version));
@@ -141,9 +153,12 @@ internal sealed class UpdateService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Looks for a newer version. A development build may look too - it only cannot install.
+    /// </summary>
     public Task CheckAsync(bool automatic)
     {
-        if (!IsSupported || _disposed || _state.Status is UpdateStatus.Downloading or UpdateStatus.Installing)
+        if (_disposed || _state.Status is UpdateStatus.Downloading or UpdateStatus.Installing)
         {
             return Task.CompletedTask;
         }
@@ -215,7 +230,7 @@ internal sealed class UpdateService : IDisposable
             }
 
             Set(_state with { Status = UpdateStatus.Downloading, Latest = manifest, Progress = 0, Error = null });
-            string package = await DownloadAsync(manifest.Package);
+            string package = await DownloadAsync(manifest.Package, manifest.Version);
 
             Set(_state with { Status = UpdateStatus.Installing, Progress = 1 });
             string staging = await Task.Run(() => Unpack(package, manifest.Version));
@@ -270,16 +285,16 @@ internal sealed class UpdateService : IDisposable
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         using HttpResponseMessage response = await _http.GetAsync(
-            $"{ManifestUrl}?t={DateTime.UtcNow.Ticks}", HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            ManifestUrl, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
 
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            throw new UpdateException("Auf dem Server liegt noch keine Update-Liste.");
+            throw new UpdateException("Das neueste Release auf GitHub hat noch keine Update-Liste.");
         }
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new UpdateException($"Der Update-Server antwortet mit {(int)response.StatusCode}.");
+            throw new UpdateException($"GitHub antwortet mit {(int)response.StatusCode}.");
         }
 
         if (response.Content.Headers.ContentLength > UpdateManifestReader.MaxLength)
@@ -292,12 +307,13 @@ internal sealed class UpdateService : IDisposable
     }
 
     /// <summary>Loads the package, checking size and SHA-256 while it arrives.</summary>
-    private async Task<string> DownloadAsync(UpdateFile file)
+    private async Task<string> DownloadAsync(UpdateFile file, string version)
     {
         Directory.CreateDirectory(WorkDirectory);
         string target = Path.Combine(WorkDirectory, file.Name);
         string part = target + ".part";
-        var source = new Uri(new Uri(ManifestUrl), $"{file.Name}?t={DateTime.UtcNow.Ticks}");
+        // From the release of exactly this version: "latest" could already be a newer one.
+        var source = new Uri($"{RepositoryUrl}/releases/download/v{version}/{Uri.EscapeDataString(file.Name)}");
 
         try
         {
@@ -517,7 +533,7 @@ internal sealed class UpdateService : IDisposable
     private static string Describe(Exception exception) => exception switch
     {
         UpdateException => exception.Message,
-        HttpRequestException or OperationCanceledException => "Keine Verbindung zum Update-Server.",
+        HttpRequestException or OperationCanceledException => "Keine Verbindung zu GitHub.",
         UnauthorizedAccessException => "Der Programmordner ist schreibgeschützt - die neue Fassung lässt sich dort nicht ablegen.",
         InvalidDataException => "Das Paket der neuen Fassung ist beschädigt.",
         IOException io when io.HResult == unchecked((int)0x80070070) => "Nicht genug Speicherplatz für die neue Fassung.",

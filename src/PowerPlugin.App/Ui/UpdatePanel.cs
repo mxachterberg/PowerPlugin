@@ -33,6 +33,14 @@ internal sealed class UpdatePanel : StackPanel
         Children.Clear();
 
         var latest = state.Latest;
+
+        if (!_inDialog)
+        {
+            TextBlock installed = Theme.Value($"PowerPlugin {state.CurrentVersion}", 15);
+            installed.Margin = new Thickness(0, 0, 0, 8);
+            Add(installed);
+        }
+
         Add(Line(Describe(state), state.Status is UpdateStatus.Available or UpdateStatus.Downloading or UpdateStatus.Installing));
 
         bool offering = latest is not null && state.Status is UpdateStatus.Available or UpdateStatus.Downloading or UpdateStatus.Error;
@@ -60,7 +68,7 @@ internal sealed class UpdatePanel : StackPanel
 
         var actions = new WrapPanel { Margin = new Thickness(0, 14, 0, 0) };
 
-        if (latest is not null && state.Status is UpdateStatus.Available or UpdateStatus.Error)
+        if (latest is not null && state.CanInstall && state.Status is UpdateStatus.Available or UpdateStatus.Error)
         {
             Button install = Theme.Button($"Jetzt aktualisieren ({FormatSize(latest!.Package.Size)})", primary: true);
             install.Margin = new Thickness(0, 0, 10, 0);
@@ -77,7 +85,7 @@ internal sealed class UpdatePanel : StackPanel
                 actions.Children.Add(later);
             }
         }
-        else if (state.Status != UpdateStatus.Unsupported)
+        else
         {
             Button check = Theme.Button("Nach Updates suchen");
             check.IsEnabled = !state.IsBusy;
@@ -97,6 +105,8 @@ internal sealed class UpdatePanel : StackPanel
 
         return state.Status switch
         {
+            UpdateStatus.Available when !state.CanInstall =>
+                $"PowerPlugin {latest} ist da - dieser Entwicklungs-Build installiert es nicht selbst.",
             UpdateStatus.Available =>
                 $"PowerPlugin {latest} ist da - du hast {state.CurrentVersion}.",
             UpdateStatus.Downloading =>
@@ -110,9 +120,9 @@ internal sealed class UpdatePanel : StackPanel
             UpdateStatus.Error =>
                 state.Error ?? "Die Suche nach Updates ist fehlgeschlagen.",
             UpdateStatus.Unsupported =>
-                "Dieser Entwicklungs-Build aktualisiert sich nicht selbst - die installierte Fassung kann es.",
+                "Dieser Entwicklungs-Build (bin\\Debug, bin\\Release) installiert Updates nicht selbst - die installierte Fassung kann es.",
             _ =>
-                $"Installiert: PowerPlugin {state.CurrentVersion}. Noch nicht nach Updates gesucht.",
+                "Noch nicht nach Updates gesucht.",
         };
     }
 

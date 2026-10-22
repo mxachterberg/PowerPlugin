@@ -4,11 +4,9 @@ Ein Strommessgerät für Windows 11, das ohne zusätzliche Hardware auskommt: Po
 laufend die Leistungsaufnahme aller relevanten Komponenten, zeigt die Summe als Zahl direkt im
 Infobereich der Taskleiste an und führt daraus eine Verbrauchsstatistik.
 
-![PowerPlugin: Übersicht mit Kennzahlen, Leistungsverteilung und Verlauf](docs/uebersicht-gross.png)
-
 <table>
   <tr>
-    <td width="70%"><img src="docs/uebersicht.png" alt="PowerPlugin im kleineren Fenster"></td>
+    <td width="70%"><img src="docs/uebersicht.png" alt="PowerPlugin: Kennzahlen, Leistungsverteilung und erfasste Hardware"></td>
     <td align="center">
       <img src="docs/infobereich.png" alt="Aktuelle Leistung als Zahl im Infobereich der Taskleiste"><br>
       <sub>Die aktuelle Leistung als Zahl im Infobereich, hier 249 W.</sub>
@@ -228,19 +226,19 @@ Wird sie abgelehnt, bleibt der bisherige Autostart bestehen, statt dass gar kein
 
 ### Updates
 
-PowerPlugin aktualisiert sich selbst, nach demselben Verfahren wie Clavichat. Kurz nach dem
-Start und danach einmal am Tag sucht es im Hintergrund nach einer neuen Fassung. Ist das Fenster
-offen, fragt ein Dialog nach; sonst meldet sich das Symbol im Infobereich, ein Klick darauf öffnet
+PowerPlugin aktualisiert sich selbst, nach demselben Verfahren wie Clavichat, aber ohne eigenen
+Server: Die Updates kommen aus den Releases dieses Repositorys auf GitHub. Kurz nach dem Start und
+danach einmal am Tag sucht es im Hintergrund nach einer neuen Fassung. Ist das Fenster offen,
+fragt ein Dialog nach; sonst meldet sich das Symbol im Infobereich, ein Klick darauf öffnet
 denselben Dialog. Er zeigt die Neuerungen, die Größe des Downloads und einen Link zu den
 Code-Änderungen. Unter *Einstellungen → Updates* lässt sich die Suche abschalten oder von Hand
 anstoßen. Nach einem Update zeigt PowerPlugin einmal „Neu in …“.
 
-Sicherheit: Die Update-Liste (`update.json`) ist mit Ed25519 signiert. Den privaten Schlüssel hat
-nur der Herausgeber, nicht der Webserver; in der App steht nur der öffentliche. Die Liste nennt
-Größe und SHA-256 des Pakets. Installiert wird erst, wenn Signatur und Prüfsumme stimmen und die
-Fassung neuer ist. Ein übernommener Webserver kann so kein Programm unterschieben, nur Updates
-zurückhalten. Es ist derselbe Schlüssel wie bei Clavichat. Die Liste nennt aber ihr Programm, und
-eine Liste von Clavichat nimmt PowerPlugin nicht an.
+Sicherheit: Die Update-Liste (`update.json` im neuesten Release) ist mit Ed25519 signiert. Den
+privaten Schlüssel kennt nur der Release-Workflow, als Secret `UPDATE_SIGNING_KEY`; in der App
+steht nur der öffentliche. Die Liste nennt Größe und SHA-256 des Pakets. Installiert wird erst,
+wenn Signatur und Prüfsumme stimmen und die Fassung neuer ist. Wer ohne diesen Schlüssel an das
+Repository oder die Downloads kommt, kann Updates zurückhalten, aber kein Programm unterschieben.
 
 Ablauf: Das Paket ist ein Zip der veröffentlichten Anwendung. PowerPlugin lädt es nach `%TEMP%`,
 prüft es und entpackt es. Dann wartet ein kleines PowerShell-Skript, bis PowerPlugin beendet ist,
@@ -254,25 +252,26 @@ Ein Build aus `bin\Debug` oder `bin\Release` aktualisiert sich nicht selbst.
 
 ### Ein Release veröffentlichen
 
-1. Version in `Directory.Build.props` (`<Version>`) erhöhen und in `CHANGELOG.md` einen Abschnitt
-   `## x.y.z – TT.MM.JJJJ` mit Stichpunkten anlegen. Die Stichpunkte werden zu den Neuerungen im
-   Update-Dialog (höchstens 12).
-2. Paket bauen, signieren und hochladen:
+1. Version in `Directory.Build.props` (`<Version>`) erhöhen.
+2. In `CHANGELOG.md` einen Abschnitt `## x.y.z – TT.MM.JJJJ` mit Stichpunkten anlegen. Sie werden
+   zum Text des Releases und zu den Neuerungen im Update-Dialog (höchstens 12).
+3. Auf `main` pushen.
 
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
-   node scripts/publish-update.js "<Webroot>\downloads\powerplugin"
-   powershell -ExecutionPolicy Bypass -File scripts\upload-update.ps1 -Dir "<Webroot>\downloads\powerplugin"
-   ```
+`.github/workflows/release.yml` testet und baut dann auf GitHub, signiert die Update-Liste und
+legt das Release `vx.y.z` mit Paket und `update.json` an. Ab da bieten alle installierten
+PowerPlugins das Update an. Von Hand geht es unter *Actions → Release → Run workflow*.
 
-   `publish-update.js` nimmt den privaten Schlüssel von Clavichat
-   (`%USERPROFILE%\.securecom\update-key.pem`, oder wohin `SECURECOM_UPDATE_KEY` zeigt) und
-   bricht ab, wenn er nicht zum öffentlichen Schlüssel in `UpdateService.cs` passt.
-   `upload-update.ps1` lädt über die gespeicherte WinSCP-Sitzung `achterberg.dev` nach
-   `/public_html/downloads/powerplugin` hoch, zuerst das Paket, zuletzt `update.json`. Die App
-   liest die Liste von `https://achterberg.dev/downloads/powerplugin/update.json`.
-3. Den Tag `vx.y.z` pushen. `.github/workflows/release.yml` baut dann auf GitHub und legt ein
-   Release mit dem Paket und dem Changelog-Abschnitt an.
+Einmalig einzurichten ist der Signierschlüssel:
+
+```powershell
+node scripts/update-key.js
+```
+
+Das Skript legt den Schlüssel unter `%USERPROFILE%\.powerplugin\update-key.pem` an und gibt beide
+Hälften aus. Der öffentliche Schlüssel gehört in `UpdateService.cs` (`PublicKey`), der private –
+komplett, mit BEGIN- und END-Zeile – als Secret `UPDATE_SIGNING_KEY` unter *Settings → Secrets
+and variables → Actions*. Fehlt das Secret, bricht der Workflow mit einem Hinweis ab, statt ein
+unsigniertes Release anzulegen.
 
 ## Gestaltung
 
@@ -369,7 +368,7 @@ src/
     Updates/             Prüfung der signierten Update-Liste
   PowerPlugin.Windows/   net8.0-windows  Sensorzugriff: LibreHardwareMonitor, WMI, Registry
   PowerPlugin.App/       net8.0-windows  WPF-Oberfläche, Taskleistensymbol und Updates
-scripts/                                 Release bauen, Update signieren und hochladen
+scripts/                                 Release bauen, Update-Liste signieren, Schlüssel anlegen
 tests/
   PowerPlugin.Tests/     net8.0          Tests für Schätzmodell, Integration und Statistik
 ```

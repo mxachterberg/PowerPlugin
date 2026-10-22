@@ -1,29 +1,46 @@
-# Baut PowerPlugin, sobald ein Versions-Tag (z. B. v1.0.0) hochgeladen wird,
-# und legt das Paket als Release ab - wie bei Clavichat. Von Hand gestartet
-# (Actions -> Release -> Run workflow) nimmt es die Version aus
-# Directory.Build.props und legt den Tag v<Version> selbst an. Der Text des Releases
-# ist der Abschnitt dieser Version aus CHANGELOG.md.
+# Veröffentlicht eine neue Fassung von PowerPlugin, sobald sich die Version in
+# Directory.Build.props auf main ändert (oder von Hand: Actions -> Release ->
+# Run workflow). Gibt es das Release dieser Version schon, passiert nichts.
 #
-# Das signierte Update für die App entsteht nicht hier: Der private Schlüssel
-# bleibt beim Herausgeber (scripts/publish-update.js, scripts/upload-update.ps1).
+# Ablauf: testen, bauen, die Update-Liste mit dem Secret UPDATE_SIGNING_KEY
+# signieren und beides als Release v<Version> ablegen. Von dort lädt die App
+# ihre Updates. Der Text des Releases ist der Abschnitt aus CHANGELOG.md.
 name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: ['Directory.Build.props']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
 
+      - name: Version bestimmen
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(sed -n 's:.*<Version>\([0-9.]*\)</Version>.*:\1:p' Directory.Build.props | head -1)"
+          [ -n "$VERSION" ] || { echo "Keine Version in Directory.Build.props." >&2; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "Release v$VERSION gibt es schon - nichts zu tun."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # .NET 8 über das offizielle Installationsskript von Microsoft.
       - name: .NET 8 installieren
+        if: steps.version.outputs.exists == 'false'
         shell: pwsh
         run: |
           Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
@@ -32,24 +49,24 @@ jobs:
           "DOTNET_ROOT=$env:RUNNER_TEMP\dotnet" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: Testen und bauen
+        if: steps.version.outputs.exists == 'false'
         shell: pwsh
         run: ./scripts/build-release.ps1
 
+      - name: Update-Liste signieren
+        if: steps.version.outputs.exists == 'false'
+        shell: bash
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: node scripts/publish-update.js dist/release
+
       - name: Release anlegen
+        if: steps.version.outputs.exists == 'false'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="$(sed -n 's:.*<Version>\([0-9.]*\)</Version>.*:\1:p' Directory.Build.props | head -1)"
-          fi
-          TAG="v$VERSION"
-          grep -q "<Version>$VERSION</Version>" Directory.Build.props || {
-            echo "Tag $TAG passt nicht zur Version in Directory.Build.props." >&2
-            exit 1
-          }
           awk -v v="$VERSION" '
             /^## / { if (found) exit; if (index($0, "## " v " ") == 1 || $0 == "## " v) { found = 1; next } }
             found { print }
@@ -58,8 +75,7 @@ jobs:
           {
             echo
             echo "---"
-            echo "PowerPlugin für Windows (x64), gebaut von GitHub Actions aus genau diesem Stand. Braucht die .NET 8 Desktop Runtime. Nicht signiert: Windows SmartScreen fragt beim ersten Start nach."
+            echo "PowerPlugin für Windows (x64), gebaut von GitHub Actions aus genau diesem Stand. Braucht die .NET 8 Desktop Runtime. Nicht signiert: Windows SmartScreen fragt beim ersten Start nach. Installierte Fassungen ab 1.0.1 aktualisieren sich selbst."
           } >> notes.md
-          # Beim Start von Hand entsteht der Tag hier, auf genau dem gebauten Stand.
-          gh release create "$TAG" "dist/PowerPlugin-$VERSION-win-x64.zip" \
-            --target "$GITHUB_SHA" --title "PowerPlugin $TAG" --notes-file notes.md
+          gh release create "v$VERSION" "dist/release/PowerPlugin-$VERSION-win-x64.zip" dist/release/update.json \
+            --target "$GITHUB_SHA" --title "PowerPlugin v$VERSION" --notes-file notes.md
