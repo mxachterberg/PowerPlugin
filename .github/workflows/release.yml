@@ -1,5 +1,7 @@
 # Baut PowerPlugin, sobald ein Versions-Tag (z. B. v1.0.0) hochgeladen wird,
-# und legt das Paket als Release ab - wie bei Clavichat. Der Text des Releases
+# und legt das Paket als Release ab - wie bei Clavichat. Von Hand gestartet
+# (Actions -> Release -> Run workflow) nimmt es die Version aus
+# Directory.Build.props und legt den Tag v<Version> selbst an. Der Text des Releases
 # ist der Abschnitt dieser Version aus CHANGELOG.md.
 #
 # Das signierte Update für die App entsteht nicht hier: Der private Schlüssel
@@ -9,6 +11,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -37,9 +40,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(sed -n 's:.*<Version>\([0-9.]*\)</Version>.*:\1:p' Directory.Build.props | head -1)"
+          fi
+          TAG="v$VERSION"
           grep -q "<Version>$VERSION</Version>" Directory.Build.props || {
-            echo "Tag $GITHUB_REF_NAME passt nicht zur Version in Directory.Build.props." >&2
+            echo "Tag $TAG passt nicht zur Version in Directory.Build.props." >&2
             exit 1
           }
           awk -v v="$VERSION" '
@@ -52,5 +60,6 @@ jobs:
             echo "---"
             echo "PowerPlugin für Windows (x64), gebaut von GitHub Actions aus genau diesem Stand. Braucht die .NET 8 Desktop Runtime. Nicht signiert: Windows SmartScreen fragt beim ersten Start nach."
           } >> notes.md
-          gh release create "$GITHUB_REF_NAME" "dist/PowerPlugin-$VERSION-win-x64.zip" \
-            --title "PowerPlugin $GITHUB_REF_NAME" --notes-file notes.md
+          # Beim Start von Hand entsteht der Tag hier, auf genau dem gebauten Stand.
+          gh release create "$TAG" "dist/PowerPlugin-$VERSION-win-x64.zip" \
+            --target "$GITHUB_SHA" --title "PowerPlugin $TAG" --notes-file notes.md
