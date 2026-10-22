@@ -4,16 +4,19 @@ Ein Strommessgerät für Windows 11, das ohne zusätzliche Hardware auskommt: Po
 laufend die Leistungsaufnahme aller relevanten Komponenten, zeigt die Summe als Zahl direkt im
 Infobereich der Taskleiste an und führt daraus eine Verbrauchsstatistik.
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│  128 W   Gesamtaufnahme an der Steckdose                    PowerPlugin  │
-│          [3 von 9 per Sensor] [Mittlere Genauigkeit]                     │
-├──────────────────────────────────────────────────────────────────────────┤
-│ TAGESDURCHSCHNITT │ PEAK      │ MONATSDURCHSCHNITT │ JAHRESPROGNOSE      │
-│ 112 W             │ 341 W     │ 118 W              │ 412 kWh             │
-│ 0,84 kWh · 0,29 € │ Allzeit…  │ 24,6 kWh · 8,61 €  │ 144,20 € pro Jahr   │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+![PowerPlugin: Übersicht mit Kennzahlen, Leistungsverteilung und Verlauf](docs/uebersicht-gross.png)
+
+<table>
+  <tr>
+    <td width="70%"><img src="docs/uebersicht.png" alt="PowerPlugin im kleineren Fenster"></td>
+    <td align="center">
+      <img src="docs/infobereich.png" alt="Aktuelle Leistung als Zahl im Infobereich der Taskleiste"><br>
+      <sub>Die aktuelle Leistung als Zahl im Infobereich, hier 249 W.</sub>
+    </td>
+  </tr>
+</table>
+
+<sub>Hardware-Bezeichnungen und Benutzername in den Screenshots sind unkenntlich gemacht.</sub>
 
 ## Was das Programm misst
 
