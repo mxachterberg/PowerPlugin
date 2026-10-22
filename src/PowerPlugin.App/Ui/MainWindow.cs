@@ -1,9 +1,7 @@
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Automation;
 using System.Windows.Documents;
-using System.Windows.Interop;
 using System.Windows.Media;
 using PowerPlugin.Core.Configuration;
 using PowerPlugin.Core.Hardware;
@@ -69,6 +67,8 @@ internal sealed class MainWindow : Window
         _settings.OpenDataFolderRequested += (_, _) => OpenDataFolderRequested?.Invoke(this, EventArgs.Empty);
         _settings.RestartElevatedRequested += (_, _) => RestartElevatedRequested?.Invoke(this, EventArgs.Empty);
         _settings.SensorReportRequested += (_, _) => SensorReportRequested?.Invoke(this, EventArgs.Empty);
+        _settings.UpdateCheckRequested += (_, _) => UpdateCheckRequested?.Invoke(this, EventArgs.Empty);
+        _settings.UpdateInstallRequested += (_, _) => UpdateInstallRequested?.Invoke(this, EventArgs.Empty);
 
         _currentWatts = new TextBlock
         {
@@ -93,7 +93,7 @@ internal sealed class MainWindow : Window
         Content = BuildLayout();
         SelectPage(0);
 
-        SourceInitialized += (_, _) => ApplyDarkTitleBar();
+        DarkTitleBar.Attach(this);
         Closing += OnClosing;
     }
 
@@ -106,6 +106,12 @@ internal sealed class MainWindow : Window
     public event EventHandler? RestartElevatedRequested;
 
     public event EventHandler? SensorReportRequested;
+
+    public event EventHandler? UpdateCheckRequested;
+
+    public event EventHandler? UpdateInstallRequested;
+
+    public void SetUpdateState(Updates.UpdateState state) => _settings.SetUpdateState(state);
 
     /// <summary>Raised when the user closes the window while "close to tray" is disabled.</summary>
     public event EventHandler? ExitRequested;
@@ -489,54 +495,6 @@ internal sealed class MainWindow : Window
 
         return string.Join("\n", lines);
     }
-
-    /// <summary>
-    /// Paints the title bar in the colours of the window instead of the system grey.
-    /// <para>
-    /// Windows 11 (build 22000 and later) accepts explicit caption, text and border colours.
-    /// Windows 10 rejects those attributes; there the dark title bar variant is the closest it gets,
-    /// so that is requested first and stays in place if the colour calls fail.
-    /// </para>
-    /// </summary>
-    private void ApplyDarkTitleBar()
-    {
-        const int DwmwaUseImmersiveDarkMode = 20;
-        const int DwmwaBorderColor = 34;
-        const int DwmwaCaptionColor = 35;
-        const int DwmwaTextColor = 36;
-
-        try
-        {
-            IntPtr handle = new WindowInteropHelper(this).Handle;
-            if (handle == IntPtr.Zero)
-            {
-                return;
-            }
-
-            int useDarkMode = 1;
-            DwmSetWindowAttribute(handle, DwmwaUseImmersiveDarkMode, ref useDarkMode, sizeof(int));
-
-            int caption = ToColorRef(Theme.Background);
-            int text = ToColorRef(Theme.Text);
-            int border = ToColorRef(Theme.BorderColor);
-
-            DwmSetWindowAttribute(handle, DwmwaCaptionColor, ref caption, sizeof(int));
-            DwmSetWindowAttribute(handle, DwmwaTextColor, ref text, sizeof(int));
-            DwmSetWindowAttribute(handle, DwmwaBorderColor, ref border, sizeof(int));
-        }
-        catch (DllNotFoundException)
-        {
-        }
-        catch (EntryPointNotFoundException)
-        {
-        }
-    }
-
-    /// <summary>COLORREF is 0x00BBGGRR - blue in the high byte, red in the low one.</summary>
-    private static int ToColorRef(Color color) => color.R | (color.G << 8) | (color.B << 16);
-
-    [DllImport("dwmapi.dll", PreserveSig = true)]
-    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 
     /// <summary>
     /// A navigation entry in the style of the website's menu: monospace capitals, a hairline

@@ -1,0 +1,555 @@
+using System.Diagnostics;
+using System.IO.Compression;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Windows.Threading;
+using PowerPlugin.Core.Configuration;
+using PowerPlugin.Core.Monitoring;
+using PowerPlugin.Core.Updates;
+using PowerPlugin.Windows;
+
+namespace PowerPlugin.App.Updates;
+
+internal enum UpdateStatus
+{
+    Idle,
+    Checking,
+    Current,
+    Available,
+    Downloading,
+    Installing,
+    Error,
+
+    /// <summary>A development build, which does not replace itself.</summary>
+    Unsupported,
+}
+
+/// <summary>What the user interface shows about updates.</summary>
+internal sealed record UpdateState(
+    UpdateStatus Status,
+    string CurrentVersion,
+    UpdateManifest? Latest,
+    double Progress,
+    string? Error,
+    DateTimeOffset? LastChecked)
+{
+    public bool IsBusy => Status is UpdateStatus.Checking or UpdateStatus.Downloading or UpdateStatus.Installing;
+}
+
+/// <summary>What changed with the update that was just installed, for the "new in" dialog.</summary>
+internal sealed record InstalledUpdate(string From, string To, IReadOnlyList<string> Notes);
+
+/// <summary>
+/// Updates, built like those of Clavichat: look for a new version shortly after the start (and
+/// once a day, as PowerPlugin runs for days in the tray), offer it, download and install it.
+/// <para>
+/// Security: the update list is signed with Ed25519 (see <see cref="UpdateManifestReader"/>). Only
+/// the publisher has the private key - the same one that signs Clavichat's list, which names
+/// itself "clavichat" and is refused here. The list states size and SHA-256 of the package; it is
+/// installed only when signature and checksum match and the version is newer. A web server taken
+/// over can withhold updates, but not smuggle in a program.
+/// </para>
+/// <para>
+/// Installing: the package is a zip of the published application. It is unpacked to a temporary
+/// folder, then a small PowerShell script waits for this process to end, swaps the program folder
+/// for the new one - the old one is kept until the new one is in place - and starts PowerPlugin
+/// again. In C:\Program Files that needs administrator rights; an elevated PowerPlugin passes its
+/// rights on, an unelevated one asks once.
+/// </para>
+/// </summary>
+internal sealed class UpdateService : IDisposable
+{
+    public const string ManifestUrl = "https://achterberg.dev/downloads/powerplugin/update.json";
+
+    /// <summary>The publisher's key (Ed25519, SPKI/DER, Base64), printed by Clavichat's update-key.js.</summary>
+    public const string PublicKey = "MCowBQYDK2VwAyEAlGx6CauvrfaZJAUtLpqsw19KVCrB2hk2vpfBkKCYnwI=";
+
+    public const string RepositoryUrl = "https://github.com/mxachterberg/PowerPlugin";
+
+    private static readonly TimeSpan StartDelay = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(24);
+    private static readonly TimeSpan Stall = TimeSpan.FromSeconds(60);
+
+    private readonly HttpClient _http;
+    private readonly DispatcherTimer _timer;
+    private UpdateState _state;
+    private Task? _check;
+    private bool _auto;
+    private bool _disposed;
+
+    public UpdateService()
+    {
+        string version = AppVersion.Of(Assembly.GetEntryAssembly()?.GetName().Version);
+        _state = new UpdateState(IsSupported ? UpdateStatus.Idle : UpdateStatus.Unsupported, version, null, 0, null, null);
+
+        _http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        _http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("PowerPlugin", version));
+        _http.DefaultRequestHeaders.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
+
+        _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = StartDelay };
+        _timer.Tick += (_, _) =>
+        {
+            _timer.Interval = CheckInterval;
+            _ = CheckAsync(automatic: true);
+        };
+    }
+
+    /// <summary>Raised on the user interface thread whenever anything about the state changes.</summary>
+    public event EventHandler<UpdateState>? StateChanged;
+
+    /// <summary>An automatic check found a new version; the user should be asked once.</summary>
+    public event EventHandler<UpdateManifest>? Found;
+
+    public UpdateState State => _state;
+
+    /// <summary>
+    /// A build straight out of the source tree replaces nothing - only the published program
+    /// does, wherever it was installed.
+    /// </summary>
+    public static bool IsSupported { get; } = !IsDevelopmentBuild(AppPaths.ApplicationDirectory);
+
+    private static string WorkDirectory => Path.Combine(Path.GetTempPath(), "PowerPlugin-Update");
+
+    private static string PendingFile => Path.Combine(AppPaths.DataDirectory, "update-pending.json");
+
+    private static string LogFile => Path.Combine(AppPaths.DataDirectory, "update.log");
+
+    public void Start(bool automatic)
+    {
+        RemoveLeftovers();
+        SetAutomatic(automatic);
+    }
+
+    public void SetAutomatic(bool automatic)
+    {
+        if (automatic == _auto && (_timer.IsEnabled || !automatic))
+        {
+            return;
+        }
+
+        _auto = automatic;
+        _timer.Stop();
+
+        if (automatic && IsSupported)
+        {
+            _timer.Interval = StartDelay;
+            _timer.Start();
+        }
+    }
+
+    public Task CheckAsync(bool automatic)
+    {
+        if (!IsSupported || _disposed || _state.Status is UpdateStatus.Downloading or UpdateStatus.Installing)
+        {
+            return Task.CompletedTask;
+        }
+
+        return _check ??= RunCheckAsync(automatic);
+    }
+
+    private async Task RunCheckAsync(bool automatic)
+    {
+        try
+        {
+            Set(_state with { Status = UpdateStatus.Checking, Error = null });
+
+            UpdateManifest manifest = await FetchManifestAsync();
+            bool available = AppVersion.IsNewer(manifest.Version, _state.CurrentVersion);
+
+            Set(_state with
+            {
+                Status = available ? UpdateStatus.Available : UpdateStatus.Current,
+                Latest = available ? manifest : null,
+                LastChecked = DateTimeOffset.Now,
+            });
+
+            if (available && automatic)
+            {
+                Found?.Invoke(this, manifest);
+            }
+        }
+        catch (Exception exception) when (IsExpected(exception))
+        {
+            DiagnosticsLog.Write("Suche nach Updates", exception);
+            Set(_state with { Status = UpdateStatus.Error, Error = Describe(exception), LastChecked = DateTimeOffset.Now });
+        }
+        finally
+        {
+            _check = null;
+        }
+    }
+
+    /// <summary>
+    /// Downloads, checks and unpacks the new version and starts the script that puts it in place.
+    /// Returns true when that script runs - the caller then has to end the program, which is what
+    /// the script waits for.
+    /// </summary>
+    public async Task<bool> InstallAsync()
+    {
+        if (!IsSupported || _disposed || _state.Status is UpdateStatus.Downloading or UpdateStatus.Installing)
+        {
+            return false;
+        }
+
+        if (_check is { } running)
+        {
+            await running;
+        }
+
+        try
+        {
+            UpdateManifest? manifest = _state.Latest;
+            if (manifest is null || !AppVersion.IsNewer(manifest.Version, _state.CurrentVersion))
+            {
+                manifest = await FetchManifestAsync();
+
+                if (!AppVersion.IsNewer(manifest.Version, _state.CurrentVersion))
+                {
+                    Set(_state with { Status = UpdateStatus.Current, Latest = null, LastChecked = DateTimeOffset.Now });
+                    return false;
+                }
+            }
+
+            Set(_state with { Status = UpdateStatus.Downloading, Latest = manifest, Progress = 0, Error = null });
+            string package = await DownloadAsync(manifest.Package);
+
+            Set(_state with { Status = UpdateStatus.Installing, Progress = 1 });
+            string staging = await Task.Run(() => Unpack(package, manifest.Version));
+
+            WritePending(new InstalledUpdate(_state.CurrentVersion, manifest.Version, manifest.Notes));
+            StartSwap(staging, manifest.Version);
+            return true;
+        }
+        catch (Exception exception) when (IsExpected(exception) || exception is System.ComponentModel.Win32Exception)
+        {
+            DiagnosticsLog.Write("Update installieren", exception);
+            TryDelete(PendingFile);
+            Set(_state with { Status = UpdateStatus.Error, Error = Describe(exception) });
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// After an update: what it brought, once. Null when this start is not the first after an
+    /// update - or when the update did not go through and the old version runs again.
+    /// </summary>
+    public InstalledUpdate? TakeInstalledUpdate()
+    {
+        try
+        {
+            if (!File.Exists(PendingFile))
+            {
+                return null;
+            }
+
+            InstalledUpdate? update = JsonSerializer.Deserialize<InstalledUpdate>(File.ReadAllText(PendingFile));
+            File.Delete(PendingFile);
+
+            if (update is null || update.To != _state.CurrentVersion)
+            {
+                DiagnosticsLog.Write($"Update auf {update?.To} ist nicht angekommen; es läuft {_state.CurrentVersion}.");
+                return null;
+            }
+
+            return update;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            DiagnosticsLog.Write("Neuerungen des Updates lesen", exception);
+            return null;
+        }
+    }
+
+    // ---- Steps ------------------------------------------------------------------------
+
+    private async Task<UpdateManifest> FetchManifestAsync()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using HttpResponseMessage response = await _http.GetAsync(
+            $"{ManifestUrl}?t={DateTime.UtcNow.Ticks}", HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new UpdateException("Auf dem Server liegt noch keine Update-Liste.");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new UpdateException($"Der Update-Server antwortet mit {(int)response.StatusCode}.");
+        }
+
+        if (response.Content.Headers.ContentLength > UpdateManifestReader.MaxLength)
+        {
+            throw new UpdateException("Die Update-Liste ist ungültig.");
+        }
+
+        string text = await response.Content.ReadAsStringAsync(timeout.Token);
+        return UpdateManifestReader.Verify(text, PublicKey);
+    }
+
+    /// <summary>Loads the package, checking size and SHA-256 while it arrives.</summary>
+    private async Task<string> DownloadAsync(UpdateFile file)
+    {
+        Directory.CreateDirectory(WorkDirectory);
+        string target = Path.Combine(WorkDirectory, file.Name);
+        string part = target + ".part";
+        var source = new Uri(new Uri(ManifestUrl), $"{file.Name}?t={DateTime.UtcNow.Ticks}");
+
+        try
+        {
+            using var stall = new CancellationTokenSource(Stall);
+            using HttpResponseMessage response = await _http.GetAsync(source, HttpCompletionOption.ResponseHeadersRead, stall.Token);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new UpdateException($"Die neue Fassung ließ sich nicht laden ({(int)response.StatusCode}).");
+            }
+
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            long received = 0;
+            int shownPercent = -1;
+
+            await using (Stream body = await response.Content.ReadAsStreamAsync(stall.Token))
+            await using (var output = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+            {
+                byte[] buffer = new byte[81920];
+                int read;
+
+                while ((read = await body.ReadAsync(buffer, stall.Token)) > 0)
+                {
+                    stall.CancelAfter(Stall);
+                    received += read;
+
+                    if (received > file.Size)
+                    {
+                        throw new UpdateException("Die Datei ist größer als angekündigt - abgebrochen.");
+                    }
+
+                    hash.AppendData(buffer, 0, read);
+                    await output.WriteAsync(buffer.AsMemory(0, read), stall.Token);
+
+                    int percent = (int)(received * 100 / file.Size);
+                    if (percent != shownPercent)
+                    {
+                        shownPercent = percent;
+                        Set(_state with { Progress = (double)received / file.Size });
+                    }
+                }
+            }
+
+            if (received != file.Size ||
+                !Convert.ToHexString(hash.GetHashAndReset()).Equals(file.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UpdateException("Die Prüfsumme der neuen Fassung stimmt nicht - sie wird nicht installiert.");
+            }
+
+            File.Move(part, target, overwrite: true);
+            return target;
+        }
+        catch
+        {
+            TryDelete(part);
+            throw;
+        }
+    }
+
+    private static string Unpack(string package, string version)
+    {
+        string staging = Path.Combine(WorkDirectory, version);
+
+        try
+        {
+            if (Directory.Exists(staging))
+            {
+                Directory.Delete(staging, recursive: true);
+            }
+
+            // Refuses entries that would land outside the folder.
+            ZipFile.ExtractToDirectory(package, staging);
+        }
+        finally
+        {
+            TryDelete(package);
+        }
+
+        string executable = Path.GetFileName(WindowsStartup.GetExecutablePath() ?? "PowerPlugin.exe");
+        if (!File.Exists(Path.Combine(staging, executable)))
+        {
+            throw new UpdateException($"Im Paket fehlt {executable} - es wird nicht installiert.");
+        }
+
+        return staging;
+    }
+
+    /// <summary>
+    /// The running program holds its files open, so the swap happens after it has ended. The old
+    /// folder is renamed rather than deleted first: if the new one cannot be put in place, the
+    /// old one comes back. A portable installation keeps its data folder and marker file.
+    /// </summary>
+    private static void StartSwap(string staging, string version)
+    {
+        string executable = WindowsStartup.GetExecutablePath()
+            ?? throw new UpdateException("Der Programmpfad ließ sich nicht ermitteln.");
+        string directory = Path.GetDirectoryName(executable)!.TrimEnd(Path.DirectorySeparatorChar);
+        string name = Path.GetFileName(directory);
+
+        static string Q(string value) => "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
+        static string Log(string text) =>
+            $"Add-Content -Encoding UTF8 -LiteralPath {Q(LogFile)} -Value ((Get-Date -Format s) + {Q(" " + text)})";
+
+        string script = string.Join("\r\n",
+            "$ErrorActionPreference = 'Stop'",
+            $"$dir = {Q(directory)}",
+            $"$new = {Q(directory + ".new")}",
+            $"$old = {Q(directory + ".old")}",
+            "try {",
+            "  " + Log($"Update auf {version}: Hilfsskript wartet auf Prozess {Environment.ProcessId}"),
+            $"  Wait-Process -Id {Environment.ProcessId} -Timeout 120 -ErrorAction SilentlyContinue",
+            "  foreach ($leftover in $new, $old) { if (Test-Path -LiteralPath $leftover) { Remove-Item -LiteralPath $leftover -Recurse -Force } }",
+            $"  Copy-Item -LiteralPath {Q(staging)} -Destination $new -Recurse -Force",
+            "  foreach ($keep in 'Data', 'portable.txt') {",
+            "    $item = Join-Path $dir $keep",
+            "    if (Test-Path -LiteralPath $item) { Copy-Item -LiteralPath $item -Destination (Join-Path $new $keep) -Recurse -Force }",
+            "  }",
+            "  $moved = $false",
+            "  for ($i = 0; $i -lt 60 -and -not $moved; $i++) {",
+            $"    try {{ Rename-Item -LiteralPath $dir -NewName {Q(name + ".old")}; $moved = $true }}",
+            "    catch { $reason = $_.Exception.Message; Start-Sleep -Milliseconds 500 }",
+            "  }",
+            "  if (-not $moved) { throw \"Der Programmordner bleibt gesperrt: $reason\" }",
+            $"  try {{ Rename-Item -LiteralPath $new -NewName {Q(name)} }}",
+            $"  catch {{ Rename-Item -LiteralPath $old -NewName {Q(name)}; throw }}",
+            "  " + Log("Neue Fassung eingesetzt"),
+            "  Remove-Item -LiteralPath $old -Recurse -Force -ErrorAction SilentlyContinue",
+            "}",
+            "catch {",
+            $"  Add-Content -Encoding UTF8 -LiteralPath {Q(LogFile)} -Value ((Get-Date -Format s) + ' Update fehlgeschlagen: ' + $_.Exception.Message)",
+            "}",
+            "finally {",
+            $"  Remove-Item -LiteralPath {Q(staging)} -Recurse -Force -ErrorAction SilentlyContinue",
+            $"  Start-Process -FilePath {Q(executable)} -ArgumentList '{Program.ShowWindowArgument}' -WorkingDirectory $dir",
+            "  " + Log("PowerPlugin gestartet"),
+            "}");
+
+        string scriptFile = Path.Combine(WorkDirectory, "update.ps1");
+
+        // With a byte order mark, or Windows PowerShell 5 misreads the umlauts.
+        File.WriteAllText(scriptFile, script, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+
+        bool elevate = !ElevationHelper.IsElevated && !CanReplace(directory);
+        var startInfo = new ProcessStartInfo("powershell.exe",
+            $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptFile}\"")
+        {
+            UseShellExecute = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            WorkingDirectory = WorkDirectory,
+            Verb = elevate ? "runas" : string.Empty,
+        };
+
+        try
+        {
+            Process.Start(startInfo)?.Dispose();
+        }
+        catch (System.ComponentModel.Win32Exception exception) when (exception.NativeErrorCode == 1223)
+        {
+            throw new UpdateException("Das Update braucht Administratorrechte für den Programmordner - die Rückfrage wurde abgelehnt.", exception);
+        }
+
+        DiagnosticsLog.Write($"Update auf {version}: Hilfsskript gestartet{(elevate ? " (mit Administratorrechten)" : string.Empty)}.");
+    }
+
+    // ---- Helpers ----------------------------------------------------------------------
+
+    /// <summary>Whether this process may rename the program folder - C:\Program Files needs elevation.</summary>
+    private static bool CanReplace(string directory)
+    {
+        string probe = $"{directory}.probe-{Guid.NewGuid():N}";
+
+        try
+        {
+            Directory.CreateDirectory(probe);
+            Directory.Delete(probe);
+            return true;
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsDevelopmentBuild(string directory) =>
+        directory.Contains(@"\bin\Debug\", StringComparison.OrdinalIgnoreCase) ||
+        directory.Contains(@"\bin\Release\", StringComparison.OrdinalIgnoreCase);
+
+    private static void WritePending(InstalledUpdate update) =>
+        File.WriteAllText(PendingFile, JsonSerializer.Serialize(update));
+
+    /// <summary>Clears what an earlier update left behind.</summary>
+    private static void RemoveLeftovers()
+    {
+        try
+        {
+            if (Directory.Exists(WorkDirectory))
+            {
+                Directory.Delete(WorkDirectory, recursive: true);
+            }
+
+            string directory = AppPaths.ApplicationDirectory.TrimEnd(Path.DirectorySeparatorChar);
+            if (Directory.Exists(directory + ".old"))
+            {
+                Directory.Delete(directory + ".old", recursive: true);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            DiagnosticsLog.Write("Reste eines Updates entfernen", exception);
+        }
+    }
+
+    private static bool IsExpected(Exception exception) =>
+        exception is UpdateException or HttpRequestException or OperationCanceledException
+            or IOException or UnauthorizedAccessException or InvalidDataException;
+
+    private static string Describe(Exception exception) => exception switch
+    {
+        UpdateException => exception.Message,
+        HttpRequestException or OperationCanceledException => "Keine Verbindung zum Update-Server.",
+        UnauthorizedAccessException => "Der Programmordner ist schreibgeschützt - die neue Fassung lässt sich dort nicht ablegen.",
+        InvalidDataException => "Das Paket der neuen Fassung ist beschädigt.",
+        IOException io when io.HResult == unchecked((int)0x80070070) => "Nicht genug Speicherplatz für die neue Fassung.",
+        _ => exception.Message,
+    };
+
+    private static void TryDelete(string file)
+    {
+        try
+        {
+            File.Delete(file);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private void Set(UpdateState state)
+    {
+        _state = state;
+        StateChanged?.Invoke(this, state);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _timer.Stop();
+        _http.Dispose();
+    }
+}

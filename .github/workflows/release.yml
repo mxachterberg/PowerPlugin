@@ -1,0 +1,56 @@
+# Baut PowerPlugin, sobald ein Versions-Tag (z. B. v1.0.0) hochgeladen wird,
+# und legt das Paket als Release ab - wie bei Clavichat. Der Text des Releases
+# ist der Abschnitt dieser Version aus CHANGELOG.md.
+#
+# Das signierte Update für die App entsteht nicht hier: Der private Schlüssel
+# bleibt beim Herausgeber (scripts/publish-update.js, scripts/upload-update.ps1).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # .NET 8 über das offizielle Installationsskript von Microsoft.
+      - name: .NET 8 installieren
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+          ./dotnet-install.ps1 -Channel 8.0 -InstallDir "$env:RUNNER_TEMP\dotnet"
+          "$env:RUNNER_TEMP\dotnet" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          "DOTNET_ROOT=$env:RUNNER_TEMP\dotnet" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Testen und bauen
+        shell: pwsh
+        run: ./scripts/build-release.ps1
+
+      - name: Release anlegen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          grep -q "<Version>$VERSION</Version>" Directory.Build.props || {
+            echo "Tag $GITHUB_REF_NAME passt nicht zur Version in Directory.Build.props." >&2
+            exit 1
+          }
+          awk -v v="$VERSION" '
+            /^## / { if (found) exit; if (index($0, "## " v " ") == 1 || $0 == "## " v) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Keine Einträge in CHANGELOG.md für $VERSION." > notes.md
+          {
+            echo
+            echo "---"
+            echo "PowerPlugin für Windows (x64), gebaut von GitHub Actions aus genau diesem Stand. Braucht die .NET 8 Desktop Runtime. Nicht signiert: Windows SmartScreen fragt beim ersten Start nach."
+          } >> notes.md
+          gh release create "$GITHUB_REF_NAME" "dist/PowerPlugin-$VERSION-win-x64.zip" \
+            --title "PowerPlugin $GITHUB_REF_NAME" --notes-file notes.md

@@ -223,6 +223,54 @@ Fälle werden erkannt und benannt.
 Das Einrichten der geplanten Aufgabe erfordert einmalig eine Bestätigung der Benutzerkontensteuerung.
 Wird sie abgelehnt, bleibt der bisherige Autostart bestehen, statt dass gar keiner übrig bleibt.
 
+### Updates
+
+PowerPlugin aktualisiert sich selbst, nach demselben Verfahren wie Clavichat. Kurz nach dem
+Start und danach einmal am Tag sucht es im Hintergrund nach einer neuen Fassung. Ist das Fenster
+offen, fragt ein Dialog nach; sonst meldet sich das Symbol im Infobereich, ein Klick darauf öffnet
+denselben Dialog. Er zeigt die Neuerungen, die Größe des Downloads und einen Link zu den
+Code-Änderungen. Unter *Einstellungen → Updates* lässt sich die Suche abschalten oder von Hand
+anstoßen. Nach einem Update zeigt PowerPlugin einmal „Neu in …“.
+
+Sicherheit: Die Update-Liste (`update.json`) ist mit Ed25519 signiert. Den privaten Schlüssel hat
+nur der Herausgeber, nicht der Webserver; in der App steht nur der öffentliche. Die Liste nennt
+Größe und SHA-256 des Pakets. Installiert wird erst, wenn Signatur und Prüfsumme stimmen und die
+Fassung neuer ist. Ein übernommener Webserver kann so kein Programm unterschieben, nur Updates
+zurückhalten. Es ist derselbe Schlüssel wie bei Clavichat. Die Liste nennt aber ihr Programm, und
+eine Liste von Clavichat nimmt PowerPlugin nicht an.
+
+Ablauf: Das Paket ist ein Zip der veröffentlichten Anwendung. PowerPlugin lädt es nach `%TEMP%`,
+prüft es und entpackt es. Dann wartet ein kleines PowerShell-Skript, bis PowerPlugin beendet ist,
+und tauscht den Programmordner aus. Der alte Ordner wird nur umbenannt und kommt zurück, falls der
+neue nicht an seinen Platz kommt. Danach startet PowerPlugin mit offenem Fenster neu. In
+`C:\Program Files` braucht der Tausch Administratorrechte: Ein erhöht laufendes PowerPlugin gibt
+sie weiter, sonst fragt Windows einmal nach. Einstellungen und Verlauf bleiben unberührt. Das
+Protokoll steht in `update.log` im Datenordner.
+
+Ein Build aus `bin\Debug` oder `bin\Release` aktualisiert sich nicht selbst.
+
+### Ein Release veröffentlichen
+
+1. Version in `Directory.Build.props` (`<Version>`) erhöhen und in `CHANGELOG.md` einen Abschnitt
+   `## x.y.z – TT.MM.JJJJ` mit Stichpunkten anlegen. Die Stichpunkte werden zu den Neuerungen im
+   Update-Dialog (höchstens 12).
+2. Paket bauen, signieren und hochladen:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
+   node scripts/publish-update.js "<Webroot>\downloads\powerplugin"
+   powershell -ExecutionPolicy Bypass -File scripts\upload-update.ps1 -Dir "<Webroot>\downloads\powerplugin"
+   ```
+
+   `publish-update.js` nimmt den privaten Schlüssel von Clavichat
+   (`%USERPROFILE%\.securecom\update-key.pem`, oder wohin `SECURECOM_UPDATE_KEY` zeigt) und
+   bricht ab, wenn er nicht zum öffentlichen Schlüssel in `UpdateService.cs` passt.
+   `upload-update.ps1` lädt über die gespeicherte WinSCP-Sitzung `achterberg.dev` nach
+   `/public_html/downloads/powerplugin` hoch, zuerst das Paket, zuletzt `update.json`. Die App
+   liest die Liste von `https://achterberg.dev/downloads/powerplugin/update.json`.
+3. Den Tag `vx.y.z` pushen. `.github/workflows/release.yml` baut dann auf GitHub und legt ein
+   Release mit dem Paket und dem Changelog-Abschnitt an.
+
 ## Gestaltung
 
 Die Oberfläche folgt dem Stylesheet von achterberg.dev, damit PowerPlugin neben Website und
@@ -315,8 +363,10 @@ src/
     Storage/             SQLite-Ablage, Energieintegration in Minutenpakete
     Statistics/          Tages-, Monats- und Jahresberechnung
     Monitoring/          Messschleife
+    Updates/             Prüfung der signierten Update-Liste
   PowerPlugin.Windows/   net8.0-windows  Sensorzugriff: LibreHardwareMonitor, WMI, Registry
-  PowerPlugin.App/       net8.0-windows  WPF-Oberfläche und Taskleistensymbol
+  PowerPlugin.App/       net8.0-windows  WPF-Oberfläche, Taskleistensymbol und Updates
+scripts/                                 Release bauen, Update signieren und hochladen
 tests/
   PowerPlugin.Tests/     net8.0          Tests für Schätzmodell, Integration und Statistik
 ```
@@ -354,3 +404,4 @@ Codebasis auf jedem Buildagenten übersetzbar und die Stildefinitionen liegen an
 * [LibreHardwareMonitorLib](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) – Sensorzugriff (MPL 2.0)
 * [Microsoft.Data.Sqlite](https://learn.microsoft.com/dotnet/standard/data/sqlite/) – Verlaufsdatenbank
 * System.Management – WMI-Abfragen für die Hardwareerkennung
+* [BouncyCastle.Cryptography](https://www.bouncycastle.org/) – Ed25519-Prüfung der Update-Liste (MIT)

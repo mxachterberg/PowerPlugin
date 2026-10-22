@@ -68,6 +68,9 @@ public sealed class AppSettings
     /// <summary>Close the window to the tray instead of quitting the program.</summary>
     public bool CloseToTray { get; set; } = true;
 
+    /// <summary>Look for a new version shortly after the start and once a day, and offer it.</summary>
+    public bool CheckForUpdates { get; set; } = true;
+
     /// <summary>
     /// Variant of the application icon. Only affects what the program sets at runtime; the icon
     /// of the executable itself is compiled in and always the default.
@@ -138,6 +141,7 @@ public sealed class AppSettings
         RunAsAdministrator = RunAsAdministrator,
         StartMinimized = StartMinimized,
         CloseToTray = CloseToTray,
+        CheckForUpdates = CheckForUpdates,
         AppIcon = AppIcon,
         TrayDisplay = TrayDisplay,
         TrayGreenThresholdWatts = TrayGreenThresholdWatts,

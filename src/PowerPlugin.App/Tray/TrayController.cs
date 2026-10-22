@@ -23,6 +23,9 @@ internal sealed class TrayController : IDisposable
     private Color _lastRenderedColor = Color.Empty;
     private bool _disposed;
 
+    /// <summary>What a click on the current balloon message does, if anything.</summary>
+    private Action? _balloonAction;
+
     public TrayController(AppSettings settings)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -51,6 +54,13 @@ internal sealed class TrayController : IDisposable
         };
 
         _notifyIcon.MouseClick += OnMouseClick;
+        _notifyIcon.BalloonTipClicked += (_, _) =>
+        {
+            Action? action = _balloonAction;
+            _balloonAction = null;
+            action?.Invoke();
+        };
+        _notifyIcon.BalloonTipClosed += (_, _) => _balloonAction = null;
         _notifyIcon.DoubleClick += (_, _) => OpenRequested?.Invoke(this, EventArgs.Empty);
     }
 
@@ -174,14 +184,18 @@ internal sealed class TrayController : IDisposable
         }
     }
 
-    /// <summary>Shows a balloon message, used for the "still running in the tray" hint.</summary>
-    public void ShowMessage(string title, string message)
+    /// <summary>
+    /// Shows a balloon message - the "still running in the tray" hint, or a new version on offer,
+    /// which <paramref name="onClick"/> then opens.
+    /// </summary>
+    public void ShowMessage(string title, string message, Action? onClick = null)
     {
         if (_disposed)
         {
             return;
         }
 
+        _balloonAction = onClick;
         _notifyIcon.BalloonTipTitle = title;
         _notifyIcon.BalloonTipText = message;
         _notifyIcon.BalloonTipIcon = ToolTipIcon.Info;

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using PowerPlugin.App.Updates;
 using PowerPlugin.Core.Configuration;
 using PowerPlugin.Core.Hardware;
 using PowerPlugin.Windows;
@@ -37,6 +38,8 @@ internal sealed class SettingsPage : Grid
     private readonly CheckBox _runAsAdmin;
     private readonly TextBlock _autostartStatus;
     private readonly CheckBox _closeToTray;
+    private readonly CheckBox _checkForUpdates;
+    private readonly UpdatePanel _updatePanel = new(inDialog: false);
     private readonly CheckBox _startMinimized;
     private readonly RadioButton _iconSubtle;
     private readonly RadioButton _iconBold;
@@ -110,6 +113,10 @@ internal sealed class SettingsPage : Grid
         _autostartStatus.TextWrapping = TextWrapping.Wrap;
         _autostartStatus.Margin = new Thickness(0, 6, 0, 4);
         _closeToTray = Theme.CheckBox("Fenster schließen minimiert in den Infobereich", true);
+
+        _checkForUpdates = Theme.CheckBox("Beim Start und einmal am Tag im Hintergrund nach Updates suchen und Bescheid geben", true);
+        _updatePanel.InstallRequested += (_, _) => UpdateInstallRequested?.Invoke(this, EventArgs.Empty);
+        _updatePanel.CheckRequested += (_, _) => UpdateCheckRequested?.Invoke(this, EventArgs.Empty);
         _startMinimized = Theme.CheckBox("Beim Start nur das Taskleistensymbol anzeigen", true);
 
         _iconSubtle = Theme.Radio("Dunkle Kachel, oranger Blitz (Standard)", "AppIcon");
@@ -176,6 +183,12 @@ internal sealed class SettingsPage : Grid
 
     /// <summary>The user wants a list of every sensor the library sees, for diagnosis.</summary>
     public event EventHandler? SensorReportRequested;
+
+    public event EventHandler? UpdateCheckRequested;
+
+    public event EventHandler? UpdateInstallRequested;
+
+    public void SetUpdateState(UpdateState state) => _updatePanel.Render(state);
 
     /// <summary>Which dedicated graphics cards are measured by a sensor and which are modelled.</summary>
     public void SetGpuSensors(IReadOnlyList<(string Name, bool Measured)> gpus)
@@ -354,6 +367,7 @@ internal sealed class SettingsPage : Grid
         _autostart.IsChecked = _settings.StartWithWindows;
         _runAsAdmin.IsChecked = _settings.RunAsAdministrator;
         _closeToTray.IsChecked = _settings.CloseToTray;
+        _checkForUpdates.IsChecked = _settings.CheckForUpdates;
         _startMinimized.IsChecked = _settings.StartMinimized;
         _iconSubtle.IsChecked = _settings.AppIcon == AppIconStyle.Subtle;
         _iconBold.IsChecked = _settings.AppIcon == AppIconStyle.Bold;
@@ -548,6 +562,22 @@ internal sealed class SettingsPage : Grid
         data.Children.Add(dataButtons);
         stack.Children.Add(Section("Daten", data));
 
+        // ---- Updates -----------------------------------------------------------------
+        var updates = new StackPanel();
+        updates.Children.Add(_updatePanel);
+
+        _checkForUpdates.Margin = new Thickness(0, 16, 0, 0);
+        updates.Children.Add(_checkForUpdates);
+
+        TextBlock updateHint = Theme.Muted(
+            "Installiert wird nur, was mit dem Schlüssel des Herausgebers signiert ist und dessen " +
+            "Prüfsumme stimmt. Im Ordner C:\\Program Files braucht das Update Administratorrechte - " +
+            "läuft PowerPlugin ohne, fragt Windows einmal nach. Einstellungen und Verlauf bleiben erhalten.", 11);
+        updateHint.TextWrapping = TextWrapping.Wrap;
+        updateHint.Margin = new Thickness(0, 8, 0, 0);
+        updates.Children.Add(updateHint);
+        stack.Children.Add(Section("Updates", updates));
+
         return stack;
     }
 
@@ -730,6 +760,7 @@ internal sealed class SettingsPage : Grid
         updated.StartWithWindows = _autostart.IsChecked == true;
         updated.RunAsAdministrator = _runAsAdmin.IsChecked == true;
         updated.CloseToTray = _closeToTray.IsChecked == true;
+        updated.CheckForUpdates = _checkForUpdates.IsChecked == true;
         updated.StartMinimized = _startMinimized.IsChecked == true;
         updated.AppIcon = _iconBold.IsChecked == true ? AppIconStyle.Bold : AppIconStyle.Subtle;
 

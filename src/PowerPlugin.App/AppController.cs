@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using PowerPlugin.App.Tray;
+using PowerPlugin.App.Updates;
 using PowerPlugin.App.Ui;
 using PowerPlugin.Core.Configuration;
 using PowerPlugin.Core.Estimation;
@@ -30,6 +31,7 @@ internal sealed class AppController : IDisposable
     private readonly PowerMonitor _monitor;
     private readonly LibreHardwareTelemetryProvider _provider = new();
     private readonly TrayController _tray;
+    private readonly UpdateService _updates = new();
     private readonly MainWindow _window;
     private readonly DispatcherTimer _statisticsTimer;
     private readonly DispatcherTimer _trayTimer;
@@ -41,6 +43,7 @@ internal sealed class AppController : IDisposable
     private EnergyStatistics _statistics = EnergyStatistics.Empty;
     private bool _statisticsRefreshRunning;
     private bool _disposed;
+    private ThemedDialog? _updateDialog;
 
     public AppController()
     {
@@ -101,7 +104,17 @@ internal sealed class AppController : IDisposable
                 "Der aktuelle Verbrauch steht im Infobereich. Ein Klick auf das Symbol öffnet die Statistik.");
         }
 
-        DiagnosticsLog.Write("PowerPlugin gestartet.");
+        _window.SetUpdateState(_updates.State);
+        _updates.Start(_settings.CheckForUpdates);
+
+        if (_updates.TakeInstalledUpdate() is { } installed)
+        {
+            // Once the window stands - the update restarts the program with it open.
+            _dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
+                ThemedDialog.WhatsNew(installed, _window).ShowDialog());
+        }
+
+        DiagnosticsLog.Write($"PowerPlugin {_updates.State.CurrentVersion} gestartet.");
     }
 
     public void ShowWindow()
@@ -133,6 +146,11 @@ internal sealed class AppController : IDisposable
         _window.OpenDataFolderRequested += (_, _) => OpenDataFolder();
         _window.RestartElevatedRequested += (_, _) => RestartElevated();
         _window.SensorReportRequested += (_, _) => CreateSensorReport();
+        _window.UpdateCheckRequested += (_, _) => _ = _updates.CheckAsync(automatic: false);
+        _window.UpdateInstallRequested += (_, _) => InstallUpdate();
+
+        _updates.StateChanged += (_, state) => _window.SetUpdateState(state);
+        _updates.Found += (_, manifest) => OfferUpdate(manifest);
 
         // Standby would otherwise be integrated as if the machine had kept running.
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
@@ -237,6 +255,7 @@ internal sealed class AppController : IDisposable
         _monitor.UpdateEstimator(new ComponentPowerEstimator(updated.Model));
         _recorder.SampleInterval = updated.SampleInterval;
         _trayTimer.Interval = updated.TrayRefreshInterval;
+        _updates.SetAutomatic(updated.CheckForUpdates);
 
         _tray.ApplySettings(updated);
         _window.ApplySettings(updated);
@@ -482,6 +501,72 @@ internal sealed class AppController : IDisposable
         }
     }
 
+    /// <summary>
+    /// A new version turned up in the background: ask right away if the window is open, otherwise
+    /// through the notification area, whose message opens the same question.
+    /// </summary>
+    private void OfferUpdate(Core.Updates.UpdateManifest manifest)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (_window.IsVisible)
+        {
+            ShowUpdateDialog();
+            return;
+        }
+
+        _tray.ShowMessage(
+            $"PowerPlugin {manifest.Version} ist da",
+            "Klicken, um die Neuerungen zu sehen und zu aktualisieren.",
+            () => _dispatcher.BeginInvoke(() =>
+            {
+                ShowWindow();
+                ShowUpdateDialog();
+            }));
+    }
+
+    private void ShowUpdateDialog()
+    {
+        if (_disposed || _updateDialog is not null)
+        {
+            _updateDialog?.Activate();
+            return;
+        }
+
+        var panel = new UpdatePanel(inDialog: true);
+        panel.Render(_updates.State);
+
+        var dialog = new ThemedDialog("Update", panel, _window);
+        EventHandler<UpdateState> render = (_, state) => panel.Render(state);
+        _updates.StateChanged += render;
+
+        panel.LaterRequested += (_, _) => dialog.Close();
+        panel.InstallRequested += (_, _) => InstallUpdate();
+        dialog.Closed += (_, _) =>
+        {
+            _updates.StateChanged -= render;
+            _updateDialog = null;
+        };
+
+        _updateDialog = dialog;
+        dialog.Show();
+    }
+
+    /// <summary>Downloads and checks the new version; once the swap script runs, the program ends for it.</summary>
+    private async void InstallUpdate()
+    {
+        // Buffered energy has to reach the database before the program goes away.
+        _monitor.FlushToDisk();
+
+        if (await _updates.InstallAsync())
+        {
+            Shutdown();
+        }
+    }
+
     private void RestartElevated()
     {
         if (ElevationHelper.IsElevated)
@@ -547,6 +632,7 @@ internal sealed class AppController : IDisposable
 
         _statisticsTimer.Stop();
         _trayTimer.Stop();
+        _updates.Dispose();
         _monitor.Dispose();
         _tray.Dispose();
         _store.Dispose();
